@@ -5,16 +5,21 @@ namespace App\Services\Accounting;
 use App\Enums\PurchaseOrderStatus;
 use App\Enums\PurchaseReceiptStatus;
 use App\Models\Company;
+use App\Models\InventoryItem;
 use App\Models\PurchaseOrder;
 use App\Models\PurchaseOrderLine;
 use App\Models\PurchaseReceipt;
 use App\Models\User;
+use App\Models\Warehouse;
+use App\Services\Inventory\InventoryService;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Validation\ValidationException;
 use Symfony\Component\HttpKernel\Exception\ConflictHttpException;
 
 class PurchaseReceiptService
 {
+    public function __construct(private readonly InventoryService $inventoryService) {}
+
     /** @param array<string,mixed> $data */
     public function receive(string $companyId, User $user, PurchaseOrder $order, array $data, string $idempotencyKey): PurchaseReceipt
     {
@@ -27,7 +32,11 @@ class PurchaseReceiptService
                     throw new ConflictHttpException('The idempotency key has already been used for a different receipt.');
                 }
 
-                return $existing->load(['supplier', 'purchaseOrder', 'lines.purchaseOrderLine']);
+                if ($existing->warehouse_id !== null) {
+                    $this->inventoryService->receivePurchaseReceipt($companyId, $user, $existing, $existing->warehouse()->firstOrFail());
+                }
+
+                return $existing->load(['supplier', 'purchaseOrder', 'warehouse', 'inventoryTransaction', 'lines.purchaseOrderLine']);
             }
 
             $order = PurchaseOrder::query()->where('company_id', $companyId)->lockForUpdate()->findOrFail($order->id);
@@ -41,11 +50,22 @@ class PurchaseReceiptService
                 throw ValidationException::withMessages(['lines' => 'Every receipt line must belong to this purchase order.']);
             }
 
+            $trackedItemIds = $orderLines->where('procurement_type', 'goods')->pluck('item_id')->filter()->unique();
+            $hasTrackedInventory = InventoryItem::query()->where('company_id', $companyId)->whereIn('id', $trackedItemIds)->where('type', 'inventory')->where('track_inventory', true)->exists();
+            $warehouse = null;
+            if ($hasTrackedInventory) {
+                if (! isset($data['warehouse_id'])) {
+                    throw ValidationException::withMessages(['warehouse_id' => 'A warehouse is required when receiving tracked inventory items.']);
+                }
+                $warehouse = Warehouse::query()->where('company_id', $companyId)->where('is_active', true)->findOrFail($data['warehouse_id']);
+            }
+
             $sequence = (int) PurchaseReceipt::query()->where('company_id', $companyId)->max('sequence') + 1;
             $receipt = PurchaseReceipt::query()->create([
                 'company_id' => $companyId,
                 'purchase_order_id' => $order->id,
                 'supplier_id' => $order->supplier_id,
+                'warehouse_id' => $warehouse?->id,
                 'sequence' => $sequence,
                 'number' => sprintf('GRN-%s-%04d', date('Y', strtotime($data['receipt_date'])), $sequence),
                 'receipt_date' => $data['receipt_date'],
@@ -78,7 +98,11 @@ class PurchaseReceiptService
             $receipt->update(['status' => $fullyReceived ? PurchaseReceiptStatus::Complete : PurchaseReceiptStatus::Partial]);
             $order->update(['status' => $fullyReceived ? PurchaseOrderStatus::Received : PurchaseOrderStatus::PartiallyReceived]);
 
-            return $receipt->load(['supplier', 'purchaseOrder', 'lines.purchaseOrderLine']);
+            if ($warehouse !== null) {
+                $this->inventoryService->receivePurchaseReceipt($companyId, $user, $receipt, $warehouse);
+            }
+
+            return $receipt->load(['supplier', 'purchaseOrder', 'warehouse', 'inventoryTransaction', 'lines.purchaseOrderLine']);
         });
     }
 }

@@ -4,6 +4,7 @@ namespace App\Http\Controllers\Api\V1\Accounting;
 
 use App\Http\Controllers\Controller;
 use App\Http\Resources\InvoiceResource;
+use App\Models\InventoryTransaction;
 use App\Models\Invoice;
 use App\Services\Accounting\InvoicePostingService;
 use App\Services\AuditService;
@@ -22,6 +23,10 @@ class InvoiceActionController extends Controller
         $posted = $this->postingService->post($companyId, $request->user(), $model);
         if ($old['journal_id'] === null) {
             $this->auditService->record($request, $request->user(), $companyId, 'post', 'invoicing', $posted, $old, $posted->withoutRelations()->toArray());
+            $inventory = InventoryTransaction::query()->where('company_id', $companyId)->where('source_type', 'invoice')->where('source_id', $posted->id)->first();
+            if ($inventory !== null) {
+                $this->auditService->record($request, $request->user(), $companyId, 'stock_issue', 'inventory', $inventory, null, $inventory->toArray());
+            }
         }
 
         return new InvoiceResource($posted);

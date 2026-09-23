@@ -8,12 +8,14 @@ use App\Models\AccountMapping;
 use App\Models\Company;
 use App\Models\CompanyUser;
 use App\Models\Customer;
+use App\Models\InventoryItem;
 use App\Models\Invoice;
 use App\Models\InvoiceLine;
 use App\Models\Permission;
 use App\Models\Role;
 use App\Models\Supplier;
 use App\Models\User;
+use App\Models\Warehouse;
 use Illuminate\Database\Console\Seeds\WithoutModelEvents;
 use Illuminate\Database\Seeder;
 
@@ -34,6 +36,7 @@ class DatabaseSeeder extends Seeder
             'suppliers.view', 'suppliers.manage', 'purchase_orders.view', 'purchase_orders.create', 'purchase_orders.update',
             'purchase_orders.approve', 'purchase_orders.cancel', 'purchase_orders.receive', 'supplier_bills.view',
             'supplier_bills.manage', 'supplier_bills.post', 'supplier_payments.create', 'payables.view',
+            'inventory.view', 'inventory.manage', 'inventory.adjust', 'inventory.transfer', 'inventory.valuation', 'inventory.return',
         ])->map(fn (string $name) => Permission::query()->create(['name' => $name]));
         $role->permissions()->attach($permissions);
         CompanyUser::query()->create(['company_id' => $company->id, 'user_id' => $user->id, 'role_id' => $role->id, 'is_active' => true]);
@@ -49,12 +52,21 @@ class DatabaseSeeder extends Seeder
         $purchaseTax = Account::factory()->for($company)->create(['code' => '1210', 'name' => 'Purchase Tax Recoverable', 'is_system' => true, 'created_by' => $user->id]);
         $withholding = Account::factory()->for($company)->liability()->create(['code' => '2050', 'name' => 'Withholding Tax Payable', 'is_system' => true, 'created_by' => $user->id]);
         $expense = Account::factory()->for($company)->expense()->create(['code' => '6000', 'name' => 'Operating Expenses', 'created_by' => $user->id]);
-        foreach (['accounts_receivable' => $receivable, 'sales_revenue' => $revenue, 'sales_tax_payable' => $salesTax, 'bank' => $bank, 'cash' => $cash, 'accounts_payable' => $payable, 'purchase_expense' => $expense, 'purchase_tax_recoverable' => $purchaseTax, 'withholding_tax_payable' => $withholding] as $key => $account) {
+        $inventoryAsset = Account::factory()->for($company)->create(['code' => '1200', 'name' => 'Inventory Asset', 'is_system' => true, 'created_by' => $user->id]);
+        $cogs = Account::factory()->for($company)->expense('cost_of_sales')->create(['code' => '5000', 'name' => 'Cost of Goods Sold', 'is_system' => true, 'created_by' => $user->id]);
+        $inventoryAdjustment = Account::factory()->for($company)->expense()->create(['code' => '5050', 'name' => 'Inventory Adjustment / Return Clearing', 'created_by' => $user->id]);
+        foreach (['accounts_receivable' => $receivable, 'sales_revenue' => $revenue, 'sales_tax_payable' => $salesTax, 'bank' => $bank, 'cash' => $cash, 'accounts_payable' => $payable, 'purchase_expense' => $expense, 'purchase_tax_recoverable' => $purchaseTax, 'withholding_tax_payable' => $withholding, 'inventory_asset' => $inventoryAsset, 'cogs' => $cogs, 'inventory_adjustment' => $inventoryAdjustment] as $key => $account) {
             AccountMapping::query()->create(['company_id' => $company->id, 'key' => $key, 'account_id' => $account->id, 'updated_by' => $user->id]);
         }
         $customer = Customer::factory()->for($company)->create(['sequence' => 1, 'code' => 'CUS-0001', 'name' => 'Demo Customer', 'created_by' => $user->id]);
         $invoice = Invoice::factory()->for($company)->for($customer)->create(['sequence' => 1, 'invoice_number' => 'INV-2026-0001', 'created_by' => $user->id]);
         InvoiceLine::factory()->for($invoice)->create();
         Supplier::factory()->for($company)->create(['sequence' => 1, 'code' => 'SUP-0001', 'name' => 'Demo Supplier', 'default_expense_account_id' => $expense->id, 'default_payable_account_id' => $payable->id, 'created_by' => $user->id]);
+        Warehouse::factory()->for($company)->default()->create(['code' => 'MAIN', 'name' => 'Main Warehouse', 'created_by' => $user->id]);
+        InventoryItem::factory()->for($company)->create([
+            'sku' => 'DEMO-ITEM', 'name' => 'Demo Inventory Item', 'created_by' => $user->id,
+            'inventory_asset_account_id' => $inventoryAsset->id, 'cogs_account_id' => $cogs->id,
+            'sales_account_id' => $revenue->id, 'inventory_adjustment_account_id' => $inventoryAdjustment->id,
+        ]);
     }
 }

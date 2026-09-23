@@ -4,14 +4,16 @@ namespace App\Services\Accounting;
 
 use App\Enums\InvoiceStatus;
 use App\Models\Company;
+use App\Models\InventoryTransaction;
 use App\Models\Invoice;
 use App\Models\User;
+use App\Services\Inventory\InventoryService;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Validation\ValidationException;
 
 class InvoicePostingService
 {
-    public function __construct(private readonly JournalPostingService $journalPostingService, private readonly AccountMappingService $mappingService) {}
+    public function __construct(private readonly JournalPostingService $journalPostingService, private readonly AccountMappingService $mappingService, private readonly InventoryService $inventoryService) {}
 
     public function post(string $companyId, User $user, Invoice $invoice): Invoice
     {
@@ -19,6 +21,8 @@ class InvoicePostingService
             Company::query()->lockForUpdate()->findOrFail($companyId);
             $invoice = Invoice::query()->where('company_id', $companyId)->with('customer')->lockForUpdate()->findOrFail($invoice->id);
             if ($invoice->journal_id !== null) {
+                $this->inventoryService->issueInvoice($companyId, $user, $invoice);
+
                 return $invoice->load(['customer', 'lines', 'journal']);
             }
             if ($invoice->status !== InvoiceStatus::Draft || $invoice->total <= 0) {
@@ -43,6 +47,7 @@ class InvoicePostingService
                 'description' => "Sales invoice — {$invoice->customer->name}", 'lines' => $lines,
             ], "invoice-post:{$invoice->id}");
             $invoice->update(['status' => InvoiceStatus::Unpaid, 'journal_id' => $journal->id, 'posted_by' => $user->id, 'posted_at' => now(), 'balance_due' => $invoice->total]);
+            $this->inventoryService->issueInvoice($companyId, $user, $invoice);
 
             return $invoice->load(['customer', 'lines', 'journal']);
         });
@@ -58,6 +63,9 @@ class InvoicePostingService
             }
             if ($invoice->amount_paid > 0) {
                 throw ValidationException::withMessages(['invoice' => 'Reverse or reallocate customer payments before voiding this invoice.']);
+            }
+            if (InventoryTransaction::query()->where('company_id', $companyId)->where('source_type', 'invoice')->where('source_id', $invoice->id)->where('type', 'sale_issue')->exists()) {
+                throw ValidationException::withMessages(['invoice' => 'Process an inventory customer return before voiding an invoice whose stock has been issued.']);
             }
             $journal = $this->journalPostingService->reverse($companyId, $user, $invoice->journal()->firstOrFail(), $postingDate, $reason, "invoice-void:{$invoice->id}");
             $invoice->update(['status' => InvoiceStatus::Void, 'balance_due' => 0, 'reversal_journal_id' => $journal->id, 'voided_by' => $user->id, 'voided_at' => now()]);

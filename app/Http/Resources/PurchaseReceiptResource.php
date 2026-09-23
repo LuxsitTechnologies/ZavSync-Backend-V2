@@ -12,7 +12,11 @@ class PurchaseReceiptResource extends JsonResource
     {
         return [
             'id' => (string) $this->id, 'company_id' => (string) $this->company_id, 'purchase_order_id' => (string) $this->purchase_order_id,
-            'supplier_id' => (string) $this->supplier_id, 'number' => $this->number, 'receipt_date' => $this->receipt_date->format('Y-m-d'),
+            'supplier_id' => (string) $this->supplier_id, 'warehouse_id' => $this->warehouse_id,
+            'warehouse_name' => $this->whenLoaded('warehouse', fn () => $this->warehouse?->name),
+            'inventory_status' => $this->warehouse_id === null ? 'not_applicable' : ($this->inventoryTransaction === null ? 'pending' : 'stocked'),
+            'inventory_transaction_id' => $this->inventoryTransaction?->id,
+            'number' => $this->number, 'receipt_date' => $this->receipt_date->format('Y-m-d'),
             'status' => $this->status->value, 'notes' => $this->notes, 'received_by' => (string) $this->received_by,
             'supplier_name' => $this->whenLoaded('supplier', fn () => $this->supplier->name),
             'purchase_order_number' => $this->whenLoaded('purchaseOrder', fn () => $this->purchaseOrder->number),

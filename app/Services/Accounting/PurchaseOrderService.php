@@ -4,6 +4,7 @@ namespace App\Services\Accounting;
 
 use App\Enums\PurchaseOrderStatus;
 use App\Models\Company;
+use App\Models\InventoryItem;
 use App\Models\PurchaseOrder;
 use App\Models\Supplier;
 use App\Models\User;
@@ -20,6 +21,7 @@ class PurchaseOrderService
     {
         return DB::transaction(function () use ($companyId, $user, $data, $idempotencyKey): PurchaseOrder {
             Company::query()->lockForUpdate()->findOrFail($companyId);
+            $data = $this->normalizeInventoryLines($companyId, $data);
             $hash = $this->hash($data);
             $existing = PurchaseOrder::query()->where('company_id', $companyId)->where('creation_idempotency_key', $idempotencyKey)->first();
             if ($existing !== null) {
@@ -53,6 +55,7 @@ class PurchaseOrderService
                 throw ValidationException::withMessages(['purchase_order' => 'Only draft or rejected purchase orders can be edited.']);
             }
             $this->supplier($companyId, (string) $data['supplier_id']);
+            $data = $this->normalizeInventoryLines($companyId, $data);
             $calculation = $this->calculationService->calculate($data['lines']);
             $order->update([
                 ...$this->header($data), ...$this->orderTotals($calculation['totals']), 'status' => PurchaseOrderStatus::Draft,
@@ -137,5 +140,27 @@ class PurchaseOrderService
     private function hash(array $data): string
     {
         return hash('sha256', json_encode($data, JSON_THROW_ON_ERROR));
+    }
+
+    /** @param array<string,mixed> $data @return array<string,mixed> */
+    private function normalizeInventoryLines(string $companyId, array $data): array
+    {
+        $items = InventoryItem::query()->where('company_id', $companyId)->whereIn('id', collect($data['lines'])->pluck('item_id')->filter())->get()->keyBy('id');
+        foreach ($data['lines'] as $index => $line) {
+            if (($line['item_id'] ?? null) === null) {
+                continue;
+            }
+            $item = $items->get($line['item_id']);
+            if ($item === null) {
+                throw ValidationException::withMessages(["lines.$index.item_id" => 'The selected item does not belong to this company.']);
+            }
+            if ($item->isTracked()) {
+                $data['lines'][$index]['procurement_type'] = 'goods';
+                $data['lines'][$index]['expense_account_id'] = $item->inventory_asset_account_id;
+                $data['lines'][$index]['item_name'] = $item->name;
+            }
+        }
+
+        return $data;
     }
 }

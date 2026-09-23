@@ -142,7 +142,7 @@ class JournalPostingService
         });
     }
 
-    private function assertOpenPeriod(string $companyId, string $postingDate): void
+    public function assertOpenPeriod(string $companyId, string $postingDate): void
     {
         $period = AccountingPeriod::query()->where('company_id', $companyId)->whereDate('start_date', '<=', $postingDate)->whereDate('end_date', '>=', $postingDate)->lockForUpdate()->first();
         if ($period === null) {

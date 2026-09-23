@@ -47,7 +47,15 @@ Thank you for considering contributing to the Laravel framework! The contributio
 
 ## MySQL staging approval
 
-The automated test suite currently runs on SQLite. Before any staging or production approval, run the accounting integration suite against the target MySQL version and explicitly verify concurrent journal, invoice, customer-receipt, purchase-order, goods-receipt, supplier-bill, and supplier-payment numbering; idempotent retries; simultaneous receipts against the same purchase-order line; simultaneous bill posting; simultaneous customer and supplier payments; supplier-payment allocations; row-lock behavior; and transaction rollback behavior.
+The automated test suite currently runs on SQLite. Before any staging or production approval, run the accounting integration suite against the target MySQL version and explicitly verify concurrent journal, invoice, customer-receipt, purchase-order, goods-receipt, supplier-bill, and supplier-payment numbering; idempotent retries; simultaneous receipts against the same purchase-order line; simultaneous bill posting; simultaneous customer and supplier payments; supplier-payment allocations; simultaneous FIFO issues and transfers against the same item/warehouse layers; row-lock behavior; deadlock retries; and transaction rollback behavior.
+
+## Inventory costing and purchase timing
+
+ZavSync uses FIFO with integer minor units and quantities stored in thousandths. A Stage 4 purchase receipt creates immutable stock movements and provisional FIFO layers at the PO line's net taxable cost. Partial-receipt cost is allocated from cumulative integer totals so the final receipt absorbs rounding and the complete PO line reconciles exactly.
+
+Receipts do not create an AP liability or a speculative payable journal. When the linked supplier bill posts, the inventory asset debit uses the same provisional PO cost; any difference between supplier-bill net cost and provisional PO cost posts to the item's inventory adjustment / purchase-price-variance account. This keeps FIFO and the inventory asset ledger reconcilable without rewriting receipt history. A reviewed cost change that belongs in stock is recorded through the explicit `COST_ADJUSTMENT` action, which changes the open FIFO layer and posts the matching inventory/adjustment journal through `JournalPostingService`.
+
+Customer returns restore the historical cost consumed by the original invoice stock issue and reverse COGS. Supplier returns reduce FIFO stock and credit inventory against the configured return-clearing/adjustment account; a future AP credit-note workflow must clear that balance and must not create a parallel supplier bill. Until the supplier bill posts, the reconciliation report deliberately exposes received-but-unbilled valuation as a difference rather than hiding it.
 
 ## Code of Conduct
 

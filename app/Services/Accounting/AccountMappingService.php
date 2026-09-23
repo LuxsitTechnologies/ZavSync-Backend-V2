@@ -23,6 +23,9 @@ class AccountMappingService
         'purchase_expense' => ['label' => 'Default purchase expense', 'description' => 'Suggested expense account for supplier bills.', 'required' => true, 'types' => ['expense', 'asset']],
         'purchase_tax_recoverable' => ['label' => 'Input purchase tax recoverable', 'description' => 'Debited with recoverable purchase tax.', 'required' => false, 'types' => ['asset']],
         'withholding_tax_payable' => ['label' => 'Withholding tax payable', 'description' => 'Credited with tax withheld from supplier bills.', 'required' => false, 'types' => ['liability']],
+        'inventory_asset' => ['label' => 'Inventory asset', 'description' => 'Inventory control account used for FIFO valuation.', 'required' => true, 'types' => ['asset']],
+        'cogs' => ['label' => 'Cost of goods sold', 'description' => 'Debited with FIFO cost when inventory is issued.', 'required' => true, 'types' => ['expense']],
+        'inventory_adjustment' => ['label' => 'Inventory adjustment / return clearing', 'description' => 'Gain, loss, and supplier-return clearing account for controlled inventory changes.', 'required' => true, 'types' => ['expense', 'revenue']],
     ];
 
     /** @return Collection<int, AccountMapping> */

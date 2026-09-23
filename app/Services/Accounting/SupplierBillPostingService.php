@@ -4,21 +4,23 @@ namespace App\Services\Accounting;
 
 use App\Enums\SupplierBillStatus;
 use App\Models\Company;
+use App\Models\InventoryItem;
 use App\Models\PurchaseOrderLine;
 use App\Models\SupplierBill;
 use App\Models\User;
+use App\Services\Inventory\IntegerAllocationService;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Validation\ValidationException;
 
 class SupplierBillPostingService
 {
-    public function __construct(private readonly JournalPostingService $journalPostingService, private readonly AccountMappingService $mappingService, private readonly PurchaseCalculationService $calculationService) {}
+    public function __construct(private readonly JournalPostingService $journalPostingService, private readonly AccountMappingService $mappingService, private readonly PurchaseCalculationService $calculationService, private readonly IntegerAllocationService $allocationService) {}
 
     public function post(string $companyId, User $user, SupplierBill $bill): SupplierBill
     {
         return DB::transaction(function () use ($companyId, $user, $bill): SupplierBill {
             Company::query()->lockForUpdate()->findOrFail($companyId);
-            $bill = SupplierBill::query()->where('company_id', $companyId)->with(['supplier', 'lines'])->lockForUpdate()->findOrFail($bill->id);
+            $bill = SupplierBill::query()->where('company_id', $companyId)->with(['supplier', 'lines.purchaseOrderLine'])->lockForUpdate()->findOrFail($bill->id);
             if ($bill->journal_id !== null) {
                 return $this->load($bill);
             }
@@ -47,7 +49,24 @@ class SupplierBillPostingService
 
             $payable = $this->mappingService->require($companyId, 'accounts_payable');
             $journalLines = [];
+            $items = InventoryItem::query()->where('company_id', $companyId)->whereIn('id', $bill->lines->pluck('item_id')->filter())->get()->keyBy('id');
             foreach ($bill->lines as $line) {
+                $item = $line->item_id === null ? null : $items->get($line->item_id);
+                if ($item?->isTracked() && $line->purchaseOrderLine !== null) {
+                    $orderLine = $line->purchaseOrderLine;
+                    $previousQuantity = max(0, $orderLine->billed_quantity_milli - $line->quantity_milli);
+                    $previousValue = $this->allocationService->proportional($orderLine->taxable_amount, $previousQuantity, $orderLine->quantity_milli);
+                    $cumulativeValue = $this->allocationService->proportional($orderLine->taxable_amount, $previousQuantity + $line->quantity_milli, $orderLine->quantity_milli);
+                    $provisionalValue = $cumulativeValue - $previousValue;
+                    $journalLines[] = ['account_id' => $item->inventory_asset_account_id, 'description' => $line->description, 'debit' => $provisionalValue, 'credit' => 0, 'related_type' => 'supplier_bill', 'related_id' => $bill->id];
+                    $difference = $line->taxable_amount - $provisionalValue;
+                    if ($difference !== 0) {
+                        $adjustmentAccount = $item->inventory_adjustment_account_id ?? $this->mappingService->require($companyId, 'inventory_adjustment')->id;
+                        $journalLines[] = ['account_id' => $adjustmentAccount, 'description' => "Purchase price variance — {$line->description}", 'debit' => max($difference, 0), 'credit' => max(-$difference, 0), 'related_type' => 'supplier_bill', 'related_id' => $bill->id];
+                    }
+
+                    continue;
+                }
                 $journalLines[] = ['account_id' => $line->expense_account_id, 'description' => $line->description, 'debit' => $line->taxable_amount, 'credit' => 0, 'related_type' => 'supplier_bill', 'related_id' => $bill->id];
             }
             if ($bill->purchase_tax > 0) {

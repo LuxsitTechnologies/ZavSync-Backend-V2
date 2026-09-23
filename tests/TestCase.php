@@ -8,10 +8,12 @@ use App\Models\AccountMapping;
 use App\Models\Company;
 use App\Models\CompanyUser;
 use App\Models\Customer;
+use App\Models\InventoryItem;
 use App\Models\Permission;
 use App\Models\Role;
 use App\Models\Supplier;
 use App\Models\User;
+use App\Models\Warehouse;
 use Illuminate\Foundation\Testing\TestCase as BaseTestCase;
 use Laravel\Sanctum\Sanctum;
 
@@ -45,6 +47,7 @@ abstract class TestCase extends BaseTestCase
             'accounts_receivable' => Account::factory()->for($company)->create(['code' => '1100', 'name' => 'Accounts Receivable', 'created_by' => $user->id]),
             'sales_revenue' => Account::factory()->for($company)->revenue()->create(['code' => '4000', 'name' => 'Sales Revenue', 'created_by' => $user->id]),
             'sales_tax_payable' => Account::factory()->for($company)->liability()->create(['code' => '2020', 'name' => 'Sales Tax Payable', 'created_by' => $user->id]),
+            'accounts_payable' => Account::factory()->for($company)->liability()->create(['code' => '2010', 'name' => 'Accounts Payable', 'created_by' => $user->id]),
             'other_tax_payable' => Account::factory()->for($company)->liability()->create(['code' => '2030', 'name' => 'Other Tax Payable', 'created_by' => $user->id]),
             'advance_tax_payable' => Account::factory()->for($company)->liability()->create(['code' => '2040', 'name' => 'Advance Tax Payable', 'created_by' => $user->id]),
             'withholding_tax_receivable' => Account::factory()->for($company)->create(['code' => '1200', 'name' => 'Withholding Tax Receivable', 'created_by' => $user->id]),
@@ -84,5 +87,38 @@ abstract class TestCase extends BaseTestCase
         ]);
 
         return compact('user', 'company', 'supplier', 'accounts');
+    }
+
+    /** @return array{user:User,company:Company,customer:Customer,supplier:Supplier,item:InventoryItem,warehouse:Warehouse,accounts:array<string,Account>} */
+    protected function stage5AccountingContext(array $permissions = ['inventory.view', 'inventory.manage', 'inventory.adjust', 'inventory.transfer', 'inventory.valuation', 'inventory.return', 'accounting.post', 'accounting.create', 'purchase_orders.view', 'purchase_orders.receive']): array
+    {
+        [$user, $company] = $this->actingAsCompanyUser($permissions);
+        AccountingPeriod::factory()->for($company)->create(['start_date' => '2026-09-01', 'end_date' => '2026-09-30']);
+        $accounts = [
+            'inventory_asset' => Account::factory()->for($company)->create(['code' => '1200', 'name' => 'Inventory Asset', 'created_by' => $user->id]),
+            'cogs' => Account::factory()->for($company)->expense('cost_of_sales')->create(['code' => '5000', 'name' => 'Cost of Goods Sold', 'created_by' => $user->id]),
+            'inventory_adjustment' => Account::factory()->for($company)->expense()->create(['code' => '5050', 'name' => 'Inventory Adjustment', 'created_by' => $user->id]),
+            'accounts_payable' => Account::factory()->for($company)->liability()->create(['code' => '2010', 'name' => 'Accounts Payable', 'created_by' => $user->id]),
+            'accounts_receivable' => Account::factory()->for($company)->create(['code' => '1100', 'name' => 'Accounts Receivable', 'created_by' => $user->id]),
+            'sales_revenue' => Account::factory()->for($company)->revenue()->create(['code' => '4000', 'name' => 'Sales Revenue', 'created_by' => $user->id]),
+            'sales_tax_payable' => Account::factory()->for($company)->liability()->create(['code' => '2020', 'name' => 'Sales Tax Payable', 'created_by' => $user->id]),
+        ];
+        foreach ($accounts as $key => $account) {
+            AccountMapping::query()->create(['company_id' => $company->id, 'key' => $key, 'account_id' => $account->id, 'updated_by' => $user->id]);
+        }
+        $item = InventoryItem::factory()->for($company)->create([
+            'created_by' => $user->id, 'inventory_asset_account_id' => $accounts['inventory_asset']->id,
+            'cogs_account_id' => $accounts['cogs']->id, 'sales_account_id' => $accounts['sales_revenue']->id,
+            'inventory_adjustment_account_id' => $accounts['inventory_adjustment']->id,
+        ]);
+        $warehouse = Warehouse::factory()->for($company)->default()->create(['created_by' => $user->id]);
+        $customer = Customer::factory()->for($company)->create(['created_by' => $user->id]);
+        $supplier = Supplier::factory()->for($company)->create([
+            'created_by' => $user->id,
+            'default_expense_account_id' => $accounts['inventory_adjustment']->id,
+            'default_payable_account_id' => $accounts['accounts_payable']->id,
+        ]);
+
+        return compact('user', 'company', 'customer', 'supplier', 'item', 'warehouse', 'accounts');
     }
 }
