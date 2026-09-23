@@ -1,0 +1,60 @@
+<?php
+
+namespace Database\Seeders;
+
+use App\Models\Account;
+use App\Models\AccountingPeriod;
+use App\Models\AccountMapping;
+use App\Models\Company;
+use App\Models\CompanyUser;
+use App\Models\Customer;
+use App\Models\Invoice;
+use App\Models\InvoiceLine;
+use App\Models\Permission;
+use App\Models\Role;
+use App\Models\Supplier;
+use App\Models\User;
+use Illuminate\Database\Console\Seeds\WithoutModelEvents;
+use Illuminate\Database\Seeder;
+
+class DatabaseSeeder extends Seeder
+{
+    use WithoutModelEvents;
+
+    /**
+     * Seed the application's database.
+     */
+    public function run(): void
+    {
+        $user = User::factory()->create(['name' => 'Finance Administrator', 'email' => 'finance@example.com']);
+        $company = Company::factory()->create(['name' => 'ZavSync Demo Company', 'slug' => 'zavsync-demo']);
+        $role = Role::query()->create(['company_id' => $company->id, 'name' => 'Finance Administrator', 'is_system' => true]);
+        $permissions = collect([
+            'accounting.view', 'accounting.create', 'accounting.edit', 'accounting.post', 'accounting.periods.manage',
+            'suppliers.view', 'suppliers.manage', 'purchase_orders.view', 'purchase_orders.create', 'purchase_orders.update',
+            'purchase_orders.approve', 'purchase_orders.cancel', 'purchase_orders.receive', 'supplier_bills.view',
+            'supplier_bills.manage', 'supplier_bills.post', 'supplier_payments.create', 'payables.view',
+        ])->map(fn (string $name) => Permission::query()->create(['name' => $name]));
+        $role->permissions()->attach($permissions);
+        CompanyUser::query()->create(['company_id' => $company->id, 'user_id' => $user->id, 'role_id' => $role->id, 'is_active' => true]);
+        AccountingPeriod::factory()->for($company)->create();
+        Account::factory()->for($company)->create(['code' => '1000', 'name' => 'Current Assets', 'created_by' => $user->id]);
+        $cash = Account::factory()->for($company)->create(['code' => '1010', 'name' => 'Cash in Hand', 'is_system' => true, 'created_by' => $user->id]);
+        $bank = Account::factory()->for($company)->create(['code' => '1020', 'name' => 'Bank Account', 'is_system' => true, 'created_by' => $user->id]);
+        $receivable = Account::factory()->for($company)->create(['code' => '1100', 'name' => 'Accounts Receivable', 'is_system' => true, 'created_by' => $user->id]);
+        $salesTax = Account::factory()->for($company)->liability()->create(['code' => '2020', 'name' => 'Sales Tax Payable', 'is_system' => true, 'created_by' => $user->id]);
+        Account::factory()->for($company)->equity()->create(['code' => '3000', 'name' => 'Owner Equity', 'created_by' => $user->id]);
+        $revenue = Account::factory()->for($company)->revenue()->create(['code' => '4000', 'name' => 'Service Revenue', 'created_by' => $user->id]);
+        $payable = Account::factory()->for($company)->liability()->create(['code' => '2010', 'name' => 'Accounts Payable', 'is_system' => true, 'created_by' => $user->id]);
+        $purchaseTax = Account::factory()->for($company)->create(['code' => '1210', 'name' => 'Purchase Tax Recoverable', 'is_system' => true, 'created_by' => $user->id]);
+        $withholding = Account::factory()->for($company)->liability()->create(['code' => '2050', 'name' => 'Withholding Tax Payable', 'is_system' => true, 'created_by' => $user->id]);
+        $expense = Account::factory()->for($company)->expense()->create(['code' => '6000', 'name' => 'Operating Expenses', 'created_by' => $user->id]);
+        foreach (['accounts_receivable' => $receivable, 'sales_revenue' => $revenue, 'sales_tax_payable' => $salesTax, 'bank' => $bank, 'cash' => $cash, 'accounts_payable' => $payable, 'purchase_expense' => $expense, 'purchase_tax_recoverable' => $purchaseTax, 'withholding_tax_payable' => $withholding] as $key => $account) {
+            AccountMapping::query()->create(['company_id' => $company->id, 'key' => $key, 'account_id' => $account->id, 'updated_by' => $user->id]);
+        }
+        $customer = Customer::factory()->for($company)->create(['sequence' => 1, 'code' => 'CUS-0001', 'name' => 'Demo Customer', 'created_by' => $user->id]);
+        $invoice = Invoice::factory()->for($company)->for($customer)->create(['sequence' => 1, 'invoice_number' => 'INV-2026-0001', 'created_by' => $user->id]);
+        InvoiceLine::factory()->for($invoice)->create();
+        Supplier::factory()->for($company)->create(['sequence' => 1, 'code' => 'SUP-0001', 'name' => 'Demo Supplier', 'default_expense_account_id' => $expense->id, 'default_payable_account_id' => $payable->id, 'created_by' => $user->id]);
+    }
+}
