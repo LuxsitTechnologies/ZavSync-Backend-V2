@@ -23,6 +23,12 @@ use App\Http\Controllers\Api\V1\Accounting\SupplierBillController;
 use App\Http\Controllers\Api\V1\Accounting\SupplierController;
 use App\Http\Controllers\Api\V1\Accounting\WarehouseController;
 use App\Http\Controllers\Api\V1\AuthController;
+use App\Http\Controllers\Api\V1\Banking\BankReconciliationController;
+use App\Http\Controllers\Api\V1\Banking\BankStatementImportController;
+use App\Http\Controllers\Api\V1\Banking\BankTransactionController;
+use App\Http\Controllers\Api\V1\Banking\CashFlowController;
+use App\Http\Controllers\Api\V1\Banking\FinancialAccountController;
+use App\Http\Controllers\Api\V1\Banking\GatewaySettlementController;
 use Illuminate\Support\Facades\Route;
 
 Route::prefix('v1')->group(function (): void {
@@ -95,6 +101,35 @@ Route::prefix('v1')->group(function (): void {
             Route::get('accounting/inventory/cogs', [InventoryReportController::class, 'cogs'])->name('inventory.cogs');
             Route::get('accounting/inventory/low-stock', [InventoryReportController::class, 'lowStock'])->name('inventory.low-stock');
             Route::get('accounting/inventory/reconciliation', [InventoryReportController::class, 'reconciliation'])->name('inventory.reconciliation');
+            Route::apiResource('banking/accounts', FinancialAccountController::class)
+                ->parameters(['accounts' => 'financial_account'])
+                ->names('banking.accounts')
+                ->only(['index', 'store', 'show', 'update']);
+            Route::get('banking/statement-imports', [BankStatementImportController::class, 'index']);
+            Route::post('banking/statement-imports/preview', [BankStatementImportController::class, 'preview']);
+            Route::post('banking/statement-imports/{statement_import}/confirm', [BankStatementImportController::class, 'confirm']);
+            Route::get('banking/transactions', [BankTransactionController::class, 'index']);
+            Route::get('banking/transactions/{bank_transaction}/suggestions', [BankTransactionController::class, 'suggestions']);
+            Route::post('banking/transactions/{bank_transaction}/match', [BankTransactionController::class, 'match']);
+            Route::post('banking/matches/{match}/unmatch', [BankTransactionController::class, 'unmatch']);
+            Route::post('banking/transactions/{bank_transaction}/classify', [BankTransactionController::class, 'classify']);
+            Route::post('banking/transactions/{bank_transaction}/customer-receipt', [BankTransactionController::class, 'customerReceipt']);
+            Route::post('banking/transactions/{bank_transaction}/supplier-payment', [BankTransactionController::class, 'supplierPayment']);
+            Route::post('banking/cash-transactions', [BankTransactionController::class, 'cash']);
+            Route::post('banking/internal-transfers', [BankTransactionController::class, 'transfer']);
+            Route::get('banking/reconciliations', [BankReconciliationController::class, 'index']);
+            Route::post('banking/reconciliations', [BankReconciliationController::class, 'store']);
+            Route::get('banking/reconciliations/{reconciliation}', [BankReconciliationController::class, 'show']);
+            Route::post('banking/reconciliations/{reconciliation}/complete', [BankReconciliationController::class, 'complete']);
+            Route::post('banking/reconciliations/{reconciliation}/reopen', [BankReconciliationController::class, 'reopen']);
+            Route::get('banking/settlements', [GatewaySettlementController::class, 'index']);
+            Route::post('banking/settlements', [GatewaySettlementController::class, 'store']);
+            Route::get('banking/settlements/{settlement}', [GatewaySettlementController::class, 'show']);
+            Route::post('banking/settlements/{settlement}/post', [GatewaySettlementController::class, 'post']);
+            Route::get('banking/cash-position', [CashFlowController::class, 'current']);
+            Route::get('banking/cash-forecast', [CashFlowController::class, 'forecast']);
+            Route::get('banking/cash-movement', [CashFlowController::class, 'movement']);
+            Route::get('banking/accounts/{financial_account}/bank-gl', [CashFlowController::class, 'bankGl']);
         });
     });
 });

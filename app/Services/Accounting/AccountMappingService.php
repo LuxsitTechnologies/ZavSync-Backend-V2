@@ -26,6 +26,11 @@ class AccountMappingService
         'inventory_asset' => ['label' => 'Inventory asset', 'description' => 'Inventory control account used for FIFO valuation.', 'required' => true, 'types' => ['asset']],
         'cogs' => ['label' => 'Cost of goods sold', 'description' => 'Debited with FIFO cost when inventory is issued.', 'required' => true, 'types' => ['expense']],
         'inventory_adjustment' => ['label' => 'Inventory adjustment / return clearing', 'description' => 'Gain, loss, and supplier-return clearing account for controlled inventory changes.', 'required' => true, 'types' => ['expense', 'revenue']],
+        'bank_charges' => ['label' => 'Bank charges', 'description' => 'Expense account used for bank fees and charges.', 'required' => false, 'types' => ['expense']],
+        'interest_income' => ['label' => 'Interest income', 'description' => 'Income account used for bank interest received.', 'required' => false, 'types' => ['revenue']],
+        'gateway_clearing' => ['label' => 'Gateway clearing', 'description' => 'Asset clearing account for payment gateway activity.', 'required' => false, 'types' => ['asset']],
+        'gateway_fees' => ['label' => 'Gateway fees', 'description' => 'Expense account used for payment processor fees.', 'required' => false, 'types' => ['expense']],
+        'cash_over_short' => ['label' => 'Cash over / short', 'description' => 'Expense or income account for controlled cash discrepancies.', 'required' => false, 'types' => ['expense', 'revenue']],
     ];
 
     /** @return Collection<int, AccountMapping> */

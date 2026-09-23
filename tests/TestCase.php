@@ -8,6 +8,7 @@ use App\Models\AccountMapping;
 use App\Models\Company;
 use App\Models\CompanyUser;
 use App\Models\Customer;
+use App\Models\FinancialAccount;
 use App\Models\InventoryItem;
 use App\Models\Permission;
 use App\Models\Role;
@@ -120,5 +121,34 @@ abstract class TestCase extends BaseTestCase
         ]);
 
         return compact('user', 'company', 'customer', 'supplier', 'item', 'warehouse', 'accounts');
+    }
+
+    /** @return array{user:User,company:Company,customer:Customer,supplier:Supplier,accounts:array<string,Account>,bank:FinancialAccount,cash:FinancialAccount} */
+    protected function stage6BankingContext(array $permissions = ['banking.view', 'banking.manage', 'banking.import', 'banking.reconcile', 'banking.post', 'banking.transfer', 'banking.settlements', 'banking.cashflow']): array
+    {
+        [$user, $company] = $this->actingAsCompanyUser($permissions);
+        AccountingPeriod::factory()->for($company)->create(['start_date' => '2026-09-01', 'end_date' => '2026-09-30']);
+        $accounts = [
+            'bank' => Account::factory()->for($company)->create(['code' => '1020', 'name' => 'Bank', 'created_by' => $user->id]),
+            'cash' => Account::factory()->for($company)->create(['code' => '1010', 'name' => 'Cash', 'created_by' => $user->id]),
+            'accounts_receivable' => Account::factory()->for($company)->create(['code' => '1100', 'name' => 'Accounts Receivable', 'created_by' => $user->id]),
+            'accounts_payable' => Account::factory()->for($company)->liability()->create(['code' => '2010', 'name' => 'Accounts Payable', 'created_by' => $user->id]),
+            'bank_charges' => Account::factory()->for($company)->expense()->create(['code' => '6100', 'name' => 'Bank Charges', 'created_by' => $user->id]),
+            'interest_income' => Account::factory()->for($company)->revenue()->create(['code' => '4100', 'name' => 'Interest Income', 'created_by' => $user->id]),
+            'gateway_clearing' => Account::factory()->for($company)->create(['code' => '1150', 'name' => 'Gateway Clearing', 'created_by' => $user->id]),
+            'gateway_fees' => Account::factory()->for($company)->expense()->create(['code' => '6110', 'name' => 'Gateway Fees', 'created_by' => $user->id]),
+            'purchase_expense' => Account::factory()->for($company)->expense()->create(['code' => '6000', 'name' => 'Purchases', 'created_by' => $user->id]),
+            'sales_revenue' => Account::factory()->for($company)->revenue()->create(['code' => '4000', 'name' => 'Revenue', 'created_by' => $user->id]),
+            'sales_tax_payable' => Account::factory()->for($company)->liability()->create(['code' => '2020', 'name' => 'Sales Tax', 'created_by' => $user->id]),
+        ];
+        foreach ($accounts as $key => $account) {
+            AccountMapping::query()->create(['company_id' => $company->id, 'key' => $key, 'account_id' => $account->id, 'updated_by' => $user->id]);
+        }
+        $bank = FinancialAccount::factory()->for($company)->create(['name' => 'Primary Bank', 'gl_account_id' => $accounts['bank']->id, 'is_default' => true, 'created_by' => $user->id]);
+        $cash = FinancialAccount::factory()->for($company)->create(['name' => 'Cash', 'type' => 'cash', 'bank_name' => null, 'gl_account_id' => $accounts['cash']->id, 'created_by' => $user->id]);
+        $customer = Customer::factory()->for($company)->create(['created_by' => $user->id]);
+        $supplier = Supplier::factory()->for($company)->create(['created_by' => $user->id, 'default_expense_account_id' => $accounts['purchase_expense']->id, 'default_payable_account_id' => $accounts['accounts_payable']->id]);
+
+        return compact('user', 'company', 'customer', 'supplier', 'accounts', 'bank', 'cash');
     }
 }

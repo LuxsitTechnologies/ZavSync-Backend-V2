@@ -5,6 +5,7 @@ namespace App\Services\Accounting;
 use App\Enums\SupplierBillStatus;
 use App\Models\Account;
 use App\Models\Company;
+use App\Models\FinancialAccount;
 use App\Models\SupplierBill;
 use App\Models\SupplierPayment;
 use App\Models\User;
@@ -41,7 +42,8 @@ class SupplierPaymentService
             }
             $bankAccount = Account::query()->where('company_id', $companyId)->where('type', 'asset')->where('is_active', true)->findOrFail($data['bank_account_id']);
             $expectedKey = $data['method'] === 'cash' ? 'cash' : 'bank';
-            if ($bankAccount->id !== $this->mappingService->require($companyId, $expectedKey)->id) {
+            $isLinkedFinancialAccount = FinancialAccount::query()->where('company_id', $companyId)->where('gl_account_id', $bankAccount->id)->where('type', $expectedKey)->where('is_active', true)->exists();
+            if ($bankAccount->id !== $this->mappingService->require($companyId, $expectedKey)->id && ! $isLinkedFinancialAccount) {
                 throw ValidationException::withMessages(['bank_account_id' => "Select the configured {$expectedKey} account for this payment."]);
             }
             $payable = $this->mappingService->require($companyId, 'accounts_payable');

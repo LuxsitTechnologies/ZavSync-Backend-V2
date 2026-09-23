@@ -6,6 +6,7 @@ use App\Enums\InvoiceStatus;
 use App\Models\Account;
 use App\Models\Company;
 use App\Models\CustomerPayment;
+use App\Models\FinancialAccount;
 use App\Models\Invoice;
 use App\Models\User;
 use Illuminate\Support\Facades\DB;
@@ -42,7 +43,8 @@ class CustomerPaymentService
             $bankAccount = Account::query()->where('company_id', $companyId)->where('type', 'asset')->where('is_active', true)->findOrFail($data['bank_account_id']);
             $expectedKey = $data['method'] === 'cash' ? 'cash' : 'bank';
             $defaultAccount = $this->mappingService->require($companyId, $expectedKey);
-            if ($bankAccount->id !== $defaultAccount->id) {
+            $isLinkedFinancialAccount = FinancialAccount::query()->where('company_id', $companyId)->where('gl_account_id', $bankAccount->id)->where('type', $expectedKey)->where('is_active', true)->exists();
+            if ($bankAccount->id !== $defaultAccount->id && ! $isLinkedFinancialAccount) {
                 throw ValidationException::withMessages(['bank_account_id' => "Select the configured {$expectedKey} account for this receipt."]);
             }
             $receivable = $this->mappingService->require($companyId, 'accounts_receivable');
