@@ -26,7 +26,7 @@ class UpdateAccountingPeriodRequest extends FormRequest
      */
     public function rules(): array
     {
-        return ['name' => ['sometimes', 'string', 'max:255'], 'start_date' => ['sometimes', 'date'], 'end_date' => ['sometimes', 'date', 'after_or_equal:start_date'], 'status' => ['sometimes', 'in:open,closed']];
+        return ['name' => ['sometimes', 'string', 'max:255'], 'start_date' => ['sometimes', 'date'], 'end_date' => ['sometimes', 'date', 'after_or_equal:start_date']];
     }
 
     /** @return array<int, Closure(Validator): void> */
@@ -35,6 +35,11 @@ class UpdateAccountingPeriodRequest extends FormRequest
         return [function (Validator $validator): void {
             $period = AccountingPeriod::query()->where('company_id', $this->attributes->get('company_id'))->find($this->route('period'));
             if (! $period || $validator->errors()->isNotEmpty()) {
+                return;
+            }
+            if ($period->status === 'closed') {
+                $validator->errors()->add('period', 'A closed period must be reopened through the controlled close workflow before editing.');
+
                 return;
             }
             $start = $this->date('start_date') ?? $period->start_date;

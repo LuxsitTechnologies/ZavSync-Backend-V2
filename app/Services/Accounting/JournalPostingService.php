@@ -40,7 +40,23 @@ class JournalPostingService
     /** @param array{posting_date:string,reference?:string|null,reference_type?:string,source_id?:string|null,source?:string,description:string,lines:array<int,array{account_id:string,description?:string|null,debit:int,credit:int,related_type?:string|null,related_id?:string|null}>} $data */
     public function post(string $companyId, User $user, array $data, ?string $idempotencyKey = null): Journal
     {
-        return DB::transaction(function () use ($companyId, $user, $data, $idempotencyKey): Journal {
+        return $this->postWithPeriodPolicy($companyId, $user, $data, $idempotencyKey, false);
+    }
+
+    /** @param array{posting_date:string,reference?:string|null,reference_type?:string,source_id?:string|null,source:string,description:string,lines:array<int,array{account_id:string,description?:string|null,debit:int,credit:int,related_type?:string|null,related_id?:string|null}>} $data */
+    public function postYearEndClosing(string $companyId, User $user, array $data, string $idempotencyKey): Journal
+    {
+        if ($data['source'] !== 'year_end_close') {
+            throw ValidationException::withMessages(['source' => 'A year-end closing journal must use the year_end_close source.']);
+        }
+
+        return $this->postWithPeriodPolicy($companyId, $user, $data, $idempotencyKey, true);
+    }
+
+    /** @param array{posting_date:string,reference?:string|null,reference_type?:string,source_id?:string|null,source?:string,description:string,lines:array<int,array{account_id:string,description?:string|null,debit:int,credit:int,related_type?:string|null,related_id?:string|null}>} $data */
+    private function postWithPeriodPolicy(string $companyId, User $user, array $data, ?string $idempotencyKey, bool $requireClosedPeriod): Journal
+    {
+        return DB::transaction(function () use ($companyId, $user, $data, $idempotencyKey, $requireClosedPeriod): Journal {
             Company::query()->lockForUpdate()->findOrFail($companyId);
             $idempotencyHash = $this->idempotencyHash($data);
             if ($idempotencyKey !== null) {
@@ -54,7 +70,11 @@ class JournalPostingService
                 }
             }
 
-            $this->assertOpenPeriod($companyId, $data['posting_date']);
+            if ($requireClosedPeriod) {
+                $this->assertClosedPeriod($companyId, $data['posting_date']);
+            } else {
+                $this->assertOpenPeriod($companyId, $data['posting_date']);
+            }
             $this->assertPostableLines($companyId, $data['lines']);
             [$sequence, $number] = $this->nextNumberAfterCompanyLock($companyId, $data['posting_date']);
             $journal = Journal::query()->create([
@@ -150,6 +170,14 @@ class JournalPostingService
         }
         if ($period->status !== 'open') {
             throw ValidationException::withMessages(['posting_date' => 'The selected accounting period is locked.']);
+        }
+    }
+
+    public function assertClosedPeriod(string $companyId, string $postingDate): void
+    {
+        $period = AccountingPeriod::query()->where('company_id', $companyId)->whereDate('start_date', '<=', $postingDate)->whereDate('end_date', '>=', $postingDate)->lockForUpdate()->first();
+        if ($period === null || $period->status !== 'closed') {
+            throw ValidationException::withMessages(['posting_date' => 'Year-end closing requires a closed accounting period.']);
         }
     }
 

@@ -1,6 +1,7 @@
 <?php
 
 use App\Http\Controllers\Api\V1\Accounting\AccountController;
+use App\Http\Controllers\Api\V1\Accounting\AccountingCloseController;
 use App\Http\Controllers\Api\V1\Accounting\AccountingPeriodController;
 use App\Http\Controllers\Api\V1\Accounting\AccountMappingController;
 use App\Http\Controllers\Api\V1\Accounting\CustomerController;
@@ -29,6 +30,9 @@ use App\Http\Controllers\Api\V1\Banking\BankTransactionController;
 use App\Http\Controllers\Api\V1\Banking\CashFlowController;
 use App\Http\Controllers\Api\V1\Banking\FinancialAccountController;
 use App\Http\Controllers\Api\V1\Banking\GatewaySettlementController;
+use App\Http\Controllers\Api\V1\Planning\BudgetController;
+use App\Http\Controllers\Api\V1\Planning\FiscalYearController;
+use App\Http\Controllers\Api\V1\Planning\ForecastController;
 use Illuminate\Support\Facades\Route;
 
 Route::prefix('v1')->group(function (): void {
@@ -52,6 +56,7 @@ Route::prefix('v1')->group(function (): void {
             Route::get('accounting/reports/trial-balance', [FinancialReportController::class, 'trialBalance']);
             Route::get('accounting/reports/profit-and-loss', [FinancialReportController::class, 'profitAndLoss']);
             Route::get('accounting/reports/balance-sheet', [FinancialReportController::class, 'balanceSheet']);
+            Route::get('accounting/reports/comparative', [FinancialReportController::class, 'comparative'])->name('accounting.reports.comparative');
             Route::get('accounting/settings/account-mappings', [AccountMappingController::class, 'index']);
             Route::patch('accounting/settings/account-mappings/{key}', [AccountMappingController::class, 'update']);
             Route::apiResource('accounting/customers', CustomerController::class);
@@ -130,6 +135,23 @@ Route::prefix('v1')->group(function (): void {
             Route::get('banking/cash-forecast', [CashFlowController::class, 'forecast']);
             Route::get('banking/cash-movement', [CashFlowController::class, 'movement']);
             Route::get('banking/accounts/{financial_account}/bank-gl', [CashFlowController::class, 'bankGl']);
+            Route::apiResource('planning/fiscal-years', FiscalYearController::class)->only(['index', 'store', 'show'])->parameters(['fiscal-years' => 'fiscalYear'])->names('planning.fiscal-years');
+            Route::post('planning/budgets/{budget}/submit', [BudgetController::class, 'submit']);
+            Route::post('planning/budgets/{budget}/approve', [BudgetController::class, 'approve']);
+            Route::post('planning/budgets/{budget}/activate', [BudgetController::class, 'activate']);
+            Route::post('planning/budgets/{budget}/revise', [BudgetController::class, 'revise']);
+            Route::get('planning/budgets/{budget}/actual', [BudgetController::class, 'actual']);
+            Route::apiResource('planning/budgets', BudgetController::class)->only(['index', 'store', 'show', 'update'])->names('planning.budgets');
+            Route::post('planning/forecasts/{forecast}/activate', [ForecastController::class, 'activate']);
+            Route::get('planning/forecasts/{forecast}/projection', [ForecastController::class, 'projection']);
+            Route::apiResource('planning/forecasts', ForecastController::class)->only(['index', 'store', 'show', 'update'])->names('planning.forecasts');
+            Route::get('accounting/close/history', [AccountingCloseController::class, 'history']);
+            Route::get('accounting/periods/{period}/readiness', [AccountingCloseController::class, 'readiness']);
+            Route::post('accounting/periods/{period}/close', [AccountingCloseController::class, 'closePeriod']);
+            Route::post('accounting/periods/{period}/reopen', [AccountingCloseController::class, 'reopenPeriod']);
+            Route::get('accounting/fiscal-years/{fiscalYear}/year-end-preview', [AccountingCloseController::class, 'yearEndPreview']);
+            Route::post('accounting/fiscal-years/{fiscalYear}/close', [AccountingCloseController::class, 'closeFiscalYear']);
+            Route::post('accounting/fiscal-years/{fiscalYear}/reopen', [AccountingCloseController::class, 'reopenFiscalYear']);
         });
     });
 });

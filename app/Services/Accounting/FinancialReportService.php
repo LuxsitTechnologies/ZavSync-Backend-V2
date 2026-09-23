@@ -3,6 +3,7 @@
 namespace App\Services\Accounting;
 
 use App\Models\Account;
+use App\Models\Journal;
 use Carbon\CarbonImmutable;
 use Illuminate\Database\Query\Builder;
 use Illuminate\Support\Collection;
@@ -81,7 +82,7 @@ class FinancialReportService
     /** @return array<string, mixed> */
     public function profitAndLoss(string $companyId, ?string $from, ?string $to): array
     {
-        $query = $this->postedLines($companyId)->whereIn('accounts.type', ['revenue', 'expense']);
+        $query = $this->postedLines($companyId, true)->whereIn('accounts.type', ['revenue', 'expense']);
         if ($from !== null) {
             $query->whereDate('journals.posting_date', '>=', $from);
         }
@@ -114,15 +115,45 @@ class FinancialReportService
         $assets = $rows->where('type', 'asset')->sum('balance');
         $liabilities = $rows->where('type', 'liability')->sum('balance');
         $equity = $rows->where('type', 'equity')->sum('balance');
-        $currentEarnings = $this->profitAndLoss($companyId, null, $asOf)['net_profit'];
+        $lastClose = Journal::query()->where('company_id', $companyId)->where('source', 'year_end_close')->where('status', 'posted')->whereDate('posting_date', '<=', $asOf)->latest('posting_date')->first();
+        $earningsFrom = $lastClose?->posting_date->addDay()->format('Y-m-d');
+        $currentEarnings = $this->profitAndLoss($companyId, $earningsFrom, $asOf)['net_profit'];
         $equityWithEarnings = $equity + $currentEarnings;
 
         return ['as_of' => $asOf, 'assets' => $assets, 'liabilities' => $liabilities, 'equity' => $equity, 'current_earnings' => $currentEarnings, 'equity_including_current_earnings' => $equityWithEarnings, 'balanced' => $assets === $liabilities + $equityWithEarnings, 'difference' => $assets - $liabilities - $equityWithEarnings, 'rows' => $rows->values()->all()];
     }
 
-    private function postedLines(string $companyId): Builder
+    /** @return Collection<string, object> */
+    public function profitAndLossActuals(string $companyId, string $from, string $to): Collection
     {
-        return DB::table('journal_lines as line')->join('journals', 'journals.id', '=', 'line.journal_id')->join('accounts', 'accounts.id', '=', 'line.account_id')->where('journals.company_id', $companyId)->whereIn('journals.status', ['posted', 'reversed']);
+        return $this->postedLines($companyId, true)
+            ->whereIn('accounts.type', ['revenue', 'expense'])
+            ->whereDate('journals.posting_date', '>=', $from)
+            ->whereDate('journals.posting_date', '<=', $to)
+            ->groupBy('line.account_id')
+            ->selectRaw("line.account_id, SUM(CASE WHEN accounts.type = 'revenue' THEN line.credit - line.debit ELSE line.debit - line.credit END) AS amount")
+            ->get()
+            ->keyBy('account_id');
+    }
+
+    /** @return array<string, mixed> */
+    public function comparativeProfitAndLoss(string $companyId, string $from, string $to, string $comparisonFrom, string $comparisonTo): array
+    {
+        return [
+            'current' => $this->profitAndLoss($companyId, $from, $to),
+            'comparison' => $this->profitAndLoss($companyId, $comparisonFrom, $comparisonTo),
+            'ranges' => ['current' => ['from' => $from, 'to' => $to], 'comparison' => ['from' => $comparisonFrom, 'to' => $comparisonTo]],
+        ];
+    }
+
+    private function postedLines(string $companyId, bool $excludeYearEndClose = false): Builder
+    {
+        $query = DB::table('journal_lines as line')->join('journals', 'journals.id', '=', 'line.journal_id')->join('accounts', 'accounts.id', '=', 'line.account_id')->where('journals.company_id', $companyId)->whereIn('journals.status', ['posted', 'reversed']);
+        if ($excludeYearEndClose) {
+            $query->where('journals.source', '!=', 'year_end_close')->whereNotExists(fn (Builder $subquery) => $subquery->selectRaw('1')->from('journals as closing_original')->whereColumn('closing_original.id', 'journals.reverses_journal_id')->where('closing_original.source', 'year_end_close'));
+        }
+
+        return $query;
     }
 
     /** @return array<int, array{month:string, actual:int, comparison:int}> */
@@ -130,7 +161,7 @@ class FinancialReportService
     {
         $end = CarbonImmutable::parse($to ?? now()->toDateString())->endOfMonth();
         $firstMonth = $end->startOfMonth()->subMonths(5);
-        $lines = $this->postedLines($companyId)
+        $lines = $this->postedLines($companyId, true)
             ->whereIn('accounts.type', ['revenue', 'expense'])
             ->whereDate('journals.posting_date', '>=', $firstMonth->subYear()->toDateString())
             ->whereDate('journals.posting_date', '<=', $end->toDateString())

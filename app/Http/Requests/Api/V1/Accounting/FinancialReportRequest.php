@@ -22,6 +22,8 @@ class FinancialReportRequest extends FormRequest
      */
     public function rules(): array
     {
-        return ['from' => ['nullable', 'date'], 'to' => ['nullable', 'date', 'after_or_equal:from'], 'as_of' => ['nullable', 'date']];
+        $comparative = $this->routeIs('*.comparative');
+
+        return ['from' => [$comparative ? 'required' : 'nullable', 'date'], 'to' => [$comparative ? 'required' : 'nullable', 'date', 'after_or_equal:from'], 'as_of' => ['nullable', 'date'], 'comparison_from' => [$comparative ? 'required' : 'nullable', 'date'], 'comparison_to' => [$comparative ? 'required' : 'nullable', 'date', 'after_or_equal:comparison_from']];
     }
 }

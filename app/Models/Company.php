@@ -57,4 +57,24 @@ class Company extends Model
     {
         return $this->hasMany(InventoryTransaction::class);
     }
+
+    public function fiscalYears(): HasMany
+    {
+        return $this->hasMany(FiscalYear::class);
+    }
+
+    public function budgets(): HasMany
+    {
+        return $this->hasMany(Budget::class);
+    }
+
+    public function forecasts(): HasMany
+    {
+        return $this->hasMany(Forecast::class);
+    }
+
+    public function accountingCloseRecords(): HasMany
+    {
+        return $this->hasMany(AccountingCloseRecord::class);
+    }
 }

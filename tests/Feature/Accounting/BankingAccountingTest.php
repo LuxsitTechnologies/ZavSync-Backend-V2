@@ -44,6 +44,22 @@ class BankingAccountingTest extends TestCase
         $this->assertSame('unmatched', $transaction->fresh()->status->value);
     }
 
+    public function test_locked_period_rejects_cash_transfer_and_gateway_financial_effects(): void
+    {
+        $context = $this->stage6BankingContext();
+        AccountingPeriod::query()->where('company_id', $context['company']->id)->update(['status' => 'closed']);
+        $destinationGl = Account::factory()->for($context['company'])->create(['code' => '1030', 'created_by' => $context['user']->id]);
+        $destination = FinancialAccount::factory()->for($context['company'])->create(['gl_account_id' => $destinationGl->id, 'created_by' => $context['user']->id]);
+
+        $this->postJson('/api/v1/banking/cash-transactions', ['financial_account_id' => $context['cash']->id, 'direction' => 'credit', 'amount' => 1000, 'transaction_date' => '2026-09-20', 'description' => 'Locked cash', 'counterpart_account_id' => $context['accounts']['interest_income']->id], $this->headers($context['company']->id, 'locked-cash'))->assertUnprocessable()->assertJsonValidationErrors('posting_date');
+        $this->postJson('/api/v1/banking/internal-transfers', ['source_financial_account_id' => $context['bank']->id, 'destination_financial_account_id' => $destination->id, 'transfer_date' => '2026-09-20', 'amount' => 1000], $this->headers($context['company']->id, 'locked-transfer'))->assertUnprocessable()->assertJsonValidationErrors('posting_date');
+        $this->postJson('/api/v1/banking/settlements', ['provider' => 'Gateway', 'settlement_reference' => 'LOCKED-SET', 'settlement_date' => '2026-09-20', 'gross_amount' => 1000, 'fee_amount' => 100, 'adjustment_amount' => 0, 'net_amount' => 900, 'currency' => 'PKR', 'destination_financial_account_id' => $context['bank']->id, 'clearing_account_id' => $context['accounts']['gateway_clearing']->id, 'fee_account_id' => $context['accounts']['gateway_fees']->id, 'post' => true], $this->headers($context['company']->id, 'locked-settlement'))->assertUnprocessable()->assertJsonValidationErrors('posting_date');
+
+        $this->assertDatabaseCount('journals', 0);
+        $this->assertDatabaseCount('internal_transfers', 0);
+        $this->assertDatabaseCount('gateway_settlements', 0);
+    }
+
     public function test_manual_cash_receipt_posts_balanced_journal_and_retries_safely(): void
     {
         $context = $this->stage6BankingContext();

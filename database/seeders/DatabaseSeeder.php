@@ -9,6 +9,7 @@ use App\Models\Company;
 use App\Models\CompanyUser;
 use App\Models\Customer;
 use App\Models\FinancialAccount;
+use App\Models\FiscalYear;
 use App\Models\InventoryItem;
 use App\Models\Invoice;
 use App\Models\InvoiceLine;
@@ -40,16 +41,20 @@ class DatabaseSeeder extends Seeder
             'inventory.view', 'inventory.manage', 'inventory.adjust', 'inventory.transfer', 'inventory.valuation', 'inventory.return',
             'banking.view', 'banking.manage', 'banking.import', 'banking.reconcile', 'banking.post', 'banking.transfer',
             'banking.settlements', 'banking.cashflow',
+            'budget.view', 'budget.manage', 'budget.submit', 'budget.approve', 'forecast.view', 'forecast.manage',
+            'accounting.close.view', 'accounting.period.close', 'accounting.period.reopen', 'accounting.year.close', 'accounting.year.reopen',
         ])->map(fn (string $name) => Permission::query()->create(['name' => $name]));
         $role->permissions()->attach($permissions);
         CompanyUser::query()->create(['company_id' => $company->id, 'user_id' => $user->id, 'role_id' => $role->id, 'is_active' => true]);
-        AccountingPeriod::factory()->for($company)->create();
+        $fiscalYear = FiscalYear::factory()->for($company)->create(['name' => 'FY 2026', 'start_date' => '2026-01-01', 'end_date' => '2026-12-31', 'currency' => $company->currency, 'created_by' => $user->id]);
+        AccountingPeriod::factory()->for($company)->create(['fiscal_year_id' => $fiscalYear->id]);
         Account::factory()->for($company)->create(['code' => '1000', 'name' => 'Current Assets', 'created_by' => $user->id]);
         $cash = Account::factory()->for($company)->create(['code' => '1010', 'name' => 'Cash in Hand', 'is_system' => true, 'created_by' => $user->id]);
         $bank = Account::factory()->for($company)->create(['code' => '1020', 'name' => 'Bank Account', 'is_system' => true, 'created_by' => $user->id]);
         $receivable = Account::factory()->for($company)->create(['code' => '1100', 'name' => 'Accounts Receivable', 'is_system' => true, 'created_by' => $user->id]);
         $salesTax = Account::factory()->for($company)->liability()->create(['code' => '2020', 'name' => 'Sales Tax Payable', 'is_system' => true, 'created_by' => $user->id]);
         Account::factory()->for($company)->equity()->create(['code' => '3000', 'name' => 'Owner Equity', 'created_by' => $user->id]);
+        $retainedEarnings = Account::factory()->for($company)->equity()->create(['code' => '3100', 'name' => 'Retained Earnings', 'is_system' => true, 'created_by' => $user->id]);
         $revenue = Account::factory()->for($company)->revenue()->create(['code' => '4000', 'name' => 'Service Revenue', 'created_by' => $user->id]);
         $payable = Account::factory()->for($company)->liability()->create(['code' => '2010', 'name' => 'Accounts Payable', 'is_system' => true, 'created_by' => $user->id]);
         $purchaseTax = Account::factory()->for($company)->create(['code' => '1210', 'name' => 'Purchase Tax Recoverable', 'is_system' => true, 'created_by' => $user->id]);
@@ -63,7 +68,7 @@ class DatabaseSeeder extends Seeder
         $gatewayClearing = Account::factory()->for($company)->create(['code' => '1150', 'name' => 'Gateway Clearing', 'created_by' => $user->id]);
         $gatewayFees = Account::factory()->for($company)->expense()->create(['code' => '6110', 'name' => 'Gateway Fees', 'created_by' => $user->id]);
         $cashOverShort = Account::factory()->for($company)->expense()->create(['code' => '6120', 'name' => 'Cash Over / Short', 'created_by' => $user->id]);
-        foreach (['accounts_receivable' => $receivable, 'sales_revenue' => $revenue, 'sales_tax_payable' => $salesTax, 'bank' => $bank, 'cash' => $cash, 'accounts_payable' => $payable, 'purchase_expense' => $expense, 'purchase_tax_recoverable' => $purchaseTax, 'withholding_tax_payable' => $withholding, 'inventory_asset' => $inventoryAsset, 'cogs' => $cogs, 'inventory_adjustment' => $inventoryAdjustment, 'bank_charges' => $bankCharges, 'interest_income' => $interestIncome, 'gateway_clearing' => $gatewayClearing, 'gateway_fees' => $gatewayFees, 'cash_over_short' => $cashOverShort] as $key => $account) {
+        foreach (['accounts_receivable' => $receivable, 'sales_revenue' => $revenue, 'sales_tax_payable' => $salesTax, 'bank' => $bank, 'cash' => $cash, 'accounts_payable' => $payable, 'purchase_expense' => $expense, 'purchase_tax_recoverable' => $purchaseTax, 'withholding_tax_payable' => $withholding, 'inventory_asset' => $inventoryAsset, 'cogs' => $cogs, 'inventory_adjustment' => $inventoryAdjustment, 'bank_charges' => $bankCharges, 'interest_income' => $interestIncome, 'gateway_clearing' => $gatewayClearing, 'gateway_fees' => $gatewayFees, 'cash_over_short' => $cashOverShort, 'retained_earnings' => $retainedEarnings] as $key => $account) {
             AccountMapping::query()->create(['company_id' => $company->id, 'key' => $key, 'account_id' => $account->id, 'updated_by' => $user->id]);
         }
         $customer = Customer::factory()->for($company)->create(['sequence' => 1, 'code' => 'CUS-0001', 'name' => 'Demo Customer', 'created_by' => $user->id]);

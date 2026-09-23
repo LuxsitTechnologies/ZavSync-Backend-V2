@@ -9,6 +9,7 @@ use App\Models\Company;
 use App\Models\CompanyUser;
 use App\Models\Customer;
 use App\Models\FinancialAccount;
+use App\Models\FiscalYear;
 use App\Models\InventoryItem;
 use App\Models\Permission;
 use App\Models\Role;
@@ -150,5 +151,29 @@ abstract class TestCase extends BaseTestCase
         $supplier = Supplier::factory()->for($company)->create(['created_by' => $user->id, 'default_expense_account_id' => $accounts['purchase_expense']->id, 'default_payable_account_id' => $accounts['accounts_payable']->id]);
 
         return compact('user', 'company', 'customer', 'supplier', 'accounts', 'bank', 'cash');
+    }
+
+    /** @return array{user:User,company:Company,fiscalYear:FiscalYear,periods:array<int,AccountingPeriod>,accounts:array<string,Account>} */
+    protected function stage7PlanningContext(array $permissions = ['accounting.view', 'accounting.create', 'accounting.post', 'accounting.close.view', 'accounting.period.close', 'accounting.period.reopen', 'accounting.year.close', 'accounting.year.reopen', 'budget.view', 'budget.manage', 'budget.submit', 'budget.approve', 'forecast.view', 'forecast.manage']): array
+    {
+        [$user, $company] = $this->actingAsCompanyUser($permissions);
+        $fiscalYear = FiscalYear::factory()->for($company)->create(['name' => 'FY 2027 Q1', 'start_date' => '2027-01-01', 'end_date' => '2027-03-31', 'currency' => $company->currency, 'created_by' => $user->id]);
+        $periods = [
+            AccountingPeriod::factory()->for($company)->create(['fiscal_year_id' => $fiscalYear->id, 'name' => 'January 2027', 'start_date' => '2027-01-01', 'end_date' => '2027-01-31']),
+            AccountingPeriod::factory()->for($company)->create(['fiscal_year_id' => $fiscalYear->id, 'name' => 'February 2027', 'start_date' => '2027-02-01', 'end_date' => '2027-02-28']),
+            AccountingPeriod::factory()->for($company)->create(['fiscal_year_id' => $fiscalYear->id, 'name' => 'March 2027', 'start_date' => '2027-03-01', 'end_date' => '2027-03-31']),
+        ];
+        $accounts = [
+            'cash' => Account::factory()->for($company)->create(['code' => '1010', 'name' => 'Cash', 'created_by' => $user->id]),
+            'retained_earnings' => Account::factory()->for($company)->equity()->create(['code' => '3100', 'name' => 'Retained Earnings', 'created_by' => $user->id]),
+            'revenue' => Account::factory()->for($company)->revenue()->create(['code' => '4000', 'name' => 'Revenue', 'created_by' => $user->id]),
+            'other_income' => Account::factory()->for($company)->revenue()->create(['code' => '4100', 'name' => 'Other Income', 'subtype' => 'other_income', 'created_by' => $user->id]),
+            'cogs' => Account::factory()->for($company)->expense('cost_of_sales')->create(['code' => '5000', 'name' => 'COGS', 'created_by' => $user->id]),
+            'expense' => Account::factory()->for($company)->expense()->create(['code' => '6000', 'name' => 'Operating Expense', 'created_by' => $user->id]),
+            'other_expense' => Account::factory()->for($company)->expense('other_expense')->create(['code' => '7000', 'name' => 'Other Expense', 'created_by' => $user->id]),
+        ];
+        AccountMapping::query()->create(['company_id' => $company->id, 'key' => 'retained_earnings', 'account_id' => $accounts['retained_earnings']->id, 'updated_by' => $user->id]);
+
+        return compact('user', 'company', 'fiscalYear', 'periods', 'accounts');
     }
 }

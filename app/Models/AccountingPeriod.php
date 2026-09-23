@@ -7,13 +7,14 @@ use Illuminate\Database\Eloquent\Concerns\HasUuids;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
+use Illuminate\Database\Eloquent\Relations\HasMany;
 
 class AccountingPeriod extends Model
 {
     /** @use HasFactory<AccountingPeriodFactory> */
     use HasFactory, HasUuids;
 
-    protected $fillable = ['company_id', 'name', 'start_date', 'end_date', 'status', 'closed_by', 'closed_at'];
+    protected $fillable = ['company_id', 'fiscal_year_id', 'name', 'start_date', 'end_date', 'status', 'closed_by', 'closed_at'];
 
     protected function casts(): array
     {
@@ -23,5 +24,15 @@ class AccountingPeriod extends Model
     public function company(): BelongsTo
     {
         return $this->belongsTo(Company::class);
+    }
+
+    public function fiscalYear(): BelongsTo
+    {
+        return $this->belongsTo(FiscalYear::class);
+    }
+
+    public function closeRecords(): HasMany
+    {
+        return $this->hasMany(AccountingCloseRecord::class);
     }
 }

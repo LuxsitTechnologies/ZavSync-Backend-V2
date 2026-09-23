@@ -25,19 +25,19 @@ class AccountingPeriodTest extends TestCase
         $this->assertTrue(AuditLog::query()->where('company_id', $company->id)->where('action', 'create')->exists());
     }
 
-    public function test_lock_and_unlock_are_company_scoped_and_audited(): void
+    public function test_controlled_close_and_reopen_are_company_scoped_and_audited(): void
     {
-        [, $company] = $this->actingAsCompanyUser(['accounting.periods.manage']);
+        [, $company] = $this->actingAsCompanyUser(['accounting.periods.manage', 'accounting.period.close', 'accounting.period.reopen']);
         $period = AccountingPeriod::factory()->for($company)->create();
 
-        $this->patchJson('/api/v1/accounting/periods/'.$period->id, ['status' => 'closed'], ['X-Company-Id' => $company->id])
-            ->assertOk()
+        $this->postJson('/api/v1/accounting/periods/'.$period->id.'/close', ['idempotency_key' => 'period-close'], ['X-Company-Id' => $company->id])
+            ->assertCreated()
             ->assertJsonPath('status', 'closed');
-        $this->patchJson('/api/v1/accounting/periods/'.$period->id, ['status' => 'open'], ['X-Company-Id' => $company->id])
+        $this->postJson('/api/v1/accounting/periods/'.$period->id.'/reopen', ['reason' => 'Approved correction'], ['X-Company-Id' => $company->id])
             ->assertOk()
-            ->assertJsonPath('status', 'open');
+            ->assertJsonPath('status', 'reopened');
 
-        $this->assertSame(2, AuditLog::query()->where('entity_id', $period->id)->whereIn('action', ['lock', 'unlock'])->count());
+        $this->assertSame(2, AuditLog::query()->whereIn('action', ['close', 'reopen'])->count());
     }
 
     public function test_rejects_date_changes_after_period_contains_posted_journal_with_422(): void

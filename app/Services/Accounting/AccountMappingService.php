@@ -31,6 +31,7 @@ class AccountMappingService
         'gateway_clearing' => ['label' => 'Gateway clearing', 'description' => 'Asset clearing account for payment gateway activity.', 'required' => false, 'types' => ['asset']],
         'gateway_fees' => ['label' => 'Gateway fees', 'description' => 'Expense account used for payment processor fees.', 'required' => false, 'types' => ['expense']],
         'cash_over_short' => ['label' => 'Cash over / short', 'description' => 'Expense or income account for controlled cash discrepancies.', 'required' => false, 'types' => ['expense', 'revenue']],
+        'retained_earnings' => ['label' => 'Retained earnings', 'description' => 'Equity account receiving fiscal-year profit or loss at year-end close.', 'required' => false, 'types' => ['equity']],
     ];
 
     /** @return Collection<int, AccountMapping> */

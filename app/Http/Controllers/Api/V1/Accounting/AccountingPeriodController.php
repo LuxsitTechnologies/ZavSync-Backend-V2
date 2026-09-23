@@ -7,6 +7,7 @@ use App\Http\Requests\Api\V1\Accounting\StoreAccountingPeriodRequest;
 use App\Http\Requests\Api\V1\Accounting\UpdateAccountingPeriodRequest;
 use App\Http\Resources\AccountingPeriodResource;
 use App\Models\AccountingPeriod;
+use App\Models\FiscalYear;
 use App\Services\AuditService;
 use Illuminate\Http\Request;
 use Illuminate\Http\Resources\Json\AnonymousResourceCollection;
@@ -26,7 +27,9 @@ class AccountingPeriodController extends Controller
     public function store(StoreAccountingPeriodRequest $request): AccountingPeriodResource
     {
         $companyId = (string) $request->attributes->get('company_id');
-        $model = AccountingPeriod::query()->create([...$request->validated(), 'company_id' => $companyId, 'status' => 'open']);
+        $data = $request->validated();
+        $fiscalYearId = FiscalYear::query()->where('company_id', $companyId)->whereDate('start_date', '<=', $data['start_date'])->whereDate('end_date', '>=', $data['end_date'])->value('id');
+        $model = AccountingPeriod::query()->create([...$data, 'company_id' => $companyId, 'fiscal_year_id' => $fiscalYearId, 'status' => 'open']);
         $this->auditService->record($request, $request->user(), $companyId, 'create', 'accounting', $model, null, $model->toArray());
 
         return new AccountingPeriodResource($model);
@@ -38,13 +41,11 @@ class AccountingPeriodController extends Controller
         $model = AccountingPeriod::query()->where('company_id', $companyId)->findOrFail($period);
         $oldValues = $model->toArray();
         $data = $request->validated();
-        if (array_key_exists('status', $data)) {
-            $data['closed_by'] = $data['status'] === 'closed' ? $request->user()->id : null;
-            $data['closed_at'] = $data['status'] === 'closed' ? now() : null;
-        }
+        $startDate = $data['start_date'] ?? $model->start_date->format('Y-m-d');
+        $endDate = $data['end_date'] ?? $model->end_date->format('Y-m-d');
+        $data['fiscal_year_id'] = FiscalYear::query()->where('company_id', $companyId)->whereDate('start_date', '<=', $startDate)->whereDate('end_date', '>=', $endDate)->value('id');
         $model->update($data);
-        $action = array_key_exists('status', $data) ? ($data['status'] === 'closed' ? 'lock' : 'unlock') : 'update';
-        $this->auditService->record($request, $request->user(), $companyId, $action, 'accounting', $model, $oldValues, $model->fresh()->toArray());
+        $this->auditService->record($request, $request->user(), $companyId, 'update', 'accounting', $model, $oldValues, $model->fresh()->toArray());
 
         return new AccountingPeriodResource($model->fresh());
     }
