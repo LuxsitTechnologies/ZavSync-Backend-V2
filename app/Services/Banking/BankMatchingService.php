@@ -9,6 +9,8 @@ use App\Models\CustomerPayment;
 use App\Models\GatewaySettlement;
 use App\Models\InternalTransfer;
 use App\Models\Journal;
+use App\Models\PayrollLiabilitySettlement;
+use App\Models\PayrollPayment;
 use App\Models\SupplierPayment;
 use App\Models\User;
 use Carbon\CarbonImmutable;
@@ -38,6 +40,12 @@ class BankMatchingService
         } else {
             SupplierPayment::query()->where('company_id', $transaction->company_id)->where('bank_account_id', $transaction->financialAccount->gl_account_id)->where('amount', $transaction->amount)->whereBetween('payment_date', [$from, $to])->with('supplier')->get()->each(function (SupplierPayment $payment) use ($candidates, $transaction): void {
                 $candidates->push($this->candidate('supplier_payment', $payment->id, $payment->number, $payment->payment_date->toDateString(), $payment->amount, $payment->supplier->name, $transaction));
+            });
+            PayrollPayment::query()->where('company_id', $transaction->company_id)->where('financial_account_id', $transaction->financial_account_id)->where('amount', $transaction->amount)->whereBetween('payment_date', [$from, $to])->get()->each(function (PayrollPayment $payment) use ($candidates, $transaction): void {
+                $candidates->push($this->candidate('payroll_payment', $payment->id, $payment->reference ?: $payment->number, $payment->payment_date->toDateString(), $payment->amount, 'Employee salaries', $transaction));
+            });
+            PayrollLiabilitySettlement::query()->where('company_id', $transaction->company_id)->where('financial_account_id', $transaction->financial_account_id)->where('amount', $transaction->amount)->whereBetween('payment_date', [$from, $to])->get()->each(function (PayrollLiabilitySettlement $settlement) use ($candidates, $transaction): void {
+                $candidates->push($this->candidate('payroll_liability_settlement', $settlement->id, $settlement->reference ?: $settlement->number, $settlement->payment_date->toDateString(), $settlement->amount, $settlement->liability_type, $transaction));
             });
         }
 
@@ -152,6 +160,8 @@ class BankMatchingService
             'supplier_payment' => SupplierPayment::query()->where('company_id', $companyId)->where('bank_account_id', $transaction->financialAccount->gl_account_id)->findOrFail($id),
             'internal_transfer' => InternalTransfer::query()->where('company_id', $companyId)->findOrFail($id),
             'gateway_settlement' => GatewaySettlement::query()->where('company_id', $companyId)->where('destination_financial_account_id', $transaction->financial_account_id)->findOrFail($id),
+            'payroll_payment' => PayrollPayment::query()->where('company_id', $companyId)->where('financial_account_id', $transaction->financial_account_id)->findOrFail($id),
+            'payroll_liability_settlement' => PayrollLiabilitySettlement::query()->where('company_id', $companyId)->where('financial_account_id', $transaction->financial_account_id)->findOrFail($id),
             'journal' => Journal::query()->where('company_id', $companyId)->whereHas('lines', fn ($query) => $query->where('account_id', $transaction->financialAccount->gl_account_id)->where($transaction->direction->value === 'credit' ? 'debit' : 'credit', $amount))->findOrFail($id),
             default => throw ValidationException::withMessages(['matchable_type' => 'Unsupported accounting transaction type.']),
         };
@@ -165,7 +175,7 @@ class BankMatchingService
         }
         $compatible = match ($type) {
             'customer_payment', 'gateway_settlement' => $transaction->direction->value === 'credit',
-            'supplier_payment' => $transaction->direction->value === 'debit',
+            'supplier_payment', 'payroll_payment', 'payroll_liability_settlement' => $transaction->direction->value === 'debit',
             'internal_transfer' => $transaction->direction->value === 'credit' ? $source->destination_financial_account_id === $transaction->financial_account_id : $source->source_financial_account_id === $transaction->financial_account_id,
             default => true,
         };

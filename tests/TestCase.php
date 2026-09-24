@@ -8,9 +8,15 @@ use App\Models\AccountMapping;
 use App\Models\Company;
 use App\Models\CompanyUser;
 use App\Models\Customer;
+use App\Models\Employee;
+use App\Models\EmployeePayrollComponent;
+use App\Models\EmployeePayrollProfile;
 use App\Models\FinancialAccount;
 use App\Models\FiscalYear;
 use App\Models\InventoryItem;
+use App\Models\PayrollComponent;
+use App\Models\PayrollPeriod;
+use App\Models\PayrollStatutoryRule;
 use App\Models\Permission;
 use App\Models\Role;
 use App\Models\Supplier;
@@ -175,5 +181,43 @@ abstract class TestCase extends BaseTestCase
         AccountMapping::query()->create(['company_id' => $company->id, 'key' => 'retained_earnings', 'account_id' => $accounts['retained_earnings']->id, 'updated_by' => $user->id]);
 
         return compact('user', 'company', 'fiscalYear', 'periods', 'accounts');
+    }
+
+    /** @return array<string, mixed> */
+    protected function stage8PayrollContext(array $permissions = ['payroll.view', 'payroll.manage', 'payroll.calculate', 'payroll.review', 'payroll.approve', 'payroll.post', 'payroll.pay', 'payroll.settle-liabilities', 'payroll.reports', 'payroll.configure', 'accounting.close.view', 'accounting.period.close', 'banking.view', 'banking.reconcile']): array
+    {
+        [$user, $company] = $this->actingAsCompanyUser($permissions);
+        $fiscalYear = FiscalYear::factory()->for($company)->create(['name' => 'FY 2026', 'start_date' => '2026-01-01', 'end_date' => '2026-12-31', 'currency' => 'PKR', 'created_by' => $user->id]);
+        $accountingPeriod = AccountingPeriod::factory()->for($company)->create(['fiscal_year_id' => $fiscalYear->id, 'name' => 'September 2026', 'start_date' => '2026-09-01', 'end_date' => '2026-09-30', 'status' => 'open']);
+        $accounts = [
+            'bank' => Account::factory()->for($company)->create(['code' => '1020', 'name' => 'Bank', 'created_by' => $user->id]),
+            'salary_expense' => Account::factory()->for($company)->expense()->create(['code' => '6200', 'name' => 'Salary Expense', 'created_by' => $user->id]),
+            'payroll_net_payable' => Account::factory()->for($company)->liability()->create(['code' => '2100', 'name' => 'Net Payable', 'created_by' => $user->id]),
+            'payroll_tax_payable' => Account::factory()->for($company)->liability()->create(['code' => '2110', 'name' => 'Tax Payable', 'created_by' => $user->id]),
+            'payroll_employee_contribution_payable' => Account::factory()->for($company)->liability()->create(['code' => '2120', 'name' => 'Employee Contribution Payable', 'created_by' => $user->id]),
+            'payroll_employer_contribution_expense' => Account::factory()->for($company)->expense()->create(['code' => '6210', 'name' => 'Employer Contribution Expense', 'created_by' => $user->id]),
+            'payroll_employer_contribution_payable' => Account::factory()->for($company)->liability()->create(['code' => '2130', 'name' => 'Employer Contribution Payable', 'created_by' => $user->id]),
+            'payroll_other_deduction_payable' => Account::factory()->for($company)->liability()->create(['code' => '2140', 'name' => 'Other Deduction Payable', 'created_by' => $user->id]),
+        ];
+        foreach ($accounts as $key => $account) {
+            AccountMapping::query()->create(['company_id' => $company->id, 'key' => $key, 'account_id' => $account->id, 'updated_by' => $user->id]);
+        }
+        $bank = FinancialAccount::factory()->for($company)->create(['name' => 'Payroll Bank', 'gl_account_id' => $accounts['bank']->id, 'currency' => 'PKR', 'created_by' => $user->id]);
+        $employee = Employee::factory()->for($company)->create(['employee_code' => 'EMP-0001', 'full_name' => 'Payroll Employee', 'joining_date' => '2026-01-01', 'created_by' => $user->id]);
+        $components = [
+            'allowance' => PayrollComponent::factory()->for($company)->create(['code' => 'ALW', 'name' => 'Allowance', 'type' => 'EARNINGS', 'fixed_amount' => 100_000, 'is_taxable' => true, 'gl_account_id' => $accounts['salary_expense']->id, 'created_by' => $user->id]),
+            'deduction' => PayrollComponent::factory()->for($company)->deduction()->create(['code' => 'DED', 'name' => 'Deduction', 'fixed_amount' => 50_000, 'liability_account_id' => $accounts['payroll_other_deduction_payable']->id, 'created_by' => $user->id]),
+            'employee_contribution' => PayrollComponent::factory()->for($company)->create(['code' => 'EMP-CONT', 'name' => 'Employee Contribution', 'type' => 'EMPLOYEE_CONTRIBUTIONS', 'fixed_amount' => 30_000, 'is_taxable' => false, 'liability_account_id' => $accounts['payroll_employee_contribution_payable']->id, 'created_by' => $user->id]),
+            'employer_contribution' => PayrollComponent::factory()->for($company)->create(['code' => 'ER-CONT', 'name' => 'Employer Contribution', 'type' => 'EMPLOYER_CONTRIBUTIONS', 'fixed_amount' => 40_000, 'is_taxable' => false, 'gl_account_id' => $accounts['payroll_employer_contribution_expense']->id, 'liability_account_id' => $accounts['payroll_employer_contribution_payable']->id, 'created_by' => $user->id]),
+            'tax' => PayrollComponent::factory()->for($company)->create(['code' => 'TAX', 'name' => 'Income Tax', 'type' => 'TAX', 'calculation_method' => 'statutory', 'fixed_amount' => null, 'is_taxable' => false, 'liability_account_id' => $accounts['payroll_tax_payable']->id, 'created_by' => $user->id]),
+        ];
+        $profile = EmployeePayrollProfile::factory()->for($company)->for($employee)->create(['base_salary' => 1_000_000, 'currency' => 'PKR', 'effective_from' => '2026-01-01', 'payment_financial_account_id' => $bank->id, 'created_by' => $user->id]);
+        foreach ($components as $component) {
+            EmployeePayrollComponent::factory()->for($company)->for($profile, 'profile')->for($component, 'component')->create();
+        }
+        $rule = PayrollStatutoryRule::factory()->for($company)->for($components['tax'], 'component')->create(['version' => '2026-test', 'effective_from' => '2026-01-01', 'threshold_from' => 0, 'rate_bps' => 1000, 'created_by' => $user->id]);
+        $payrollPeriod = PayrollPeriod::factory()->for($company)->create(['fiscal_year_id' => $fiscalYear->id, 'accounting_period_id' => $accountingPeriod->id, 'name' => 'September 2026', 'period_start' => '2026-09-01', 'period_end' => '2026-09-30', 'pay_date' => '2026-09-30', 'created_by' => $user->id]);
+
+        return compact('user', 'company', 'fiscalYear', 'accountingPeriod', 'accounts', 'bank', 'employee', 'components', 'profile', 'rule', 'payrollPeriod');
     }
 }

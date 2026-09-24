@@ -31,6 +31,15 @@ class AccountMappingService
         'gateway_clearing' => ['label' => 'Gateway clearing', 'description' => 'Asset clearing account for payment gateway activity.', 'required' => false, 'types' => ['asset']],
         'gateway_fees' => ['label' => 'Gateway fees', 'description' => 'Expense account used for payment processor fees.', 'required' => false, 'types' => ['expense']],
         'cash_over_short' => ['label' => 'Cash over / short', 'description' => 'Expense or income account for controlled cash discrepancies.', 'required' => false, 'types' => ['expense', 'revenue']],
+        'salary_expense' => ['label' => 'Salary expense', 'description' => 'Debited with employee base salary and unmapped payroll earnings.', 'required' => true, 'types' => ['expense']],
+        'wage_expense' => ['label' => 'Wage expense', 'description' => 'Optional wage expense account for wage-specific payroll components.', 'required' => false, 'types' => ['expense']],
+        'payroll_net_payable' => ['label' => 'Employee net pay payable', 'description' => 'Credited when payroll is posted and debited when employees are paid.', 'required' => true, 'types' => ['liability']],
+        'payroll_tax_payable' => ['label' => 'Payroll income tax payable', 'description' => 'Credited with employee income tax withheld.', 'required' => false, 'types' => ['liability']],
+        'payroll_employee_contribution_payable' => ['label' => 'Employee contribution payable', 'description' => 'Credited with employee statutory and benefit contributions withheld.', 'required' => false, 'types' => ['liability']],
+        'payroll_employer_contribution_expense' => ['label' => 'Employer contribution expense', 'description' => 'Debited with employer payroll contributions.', 'required' => false, 'types' => ['expense']],
+        'payroll_employer_contribution_payable' => ['label' => 'Employer contribution payable', 'description' => 'Credited with employer payroll contributions awaiting settlement.', 'required' => false, 'types' => ['liability']],
+        'payroll_other_deduction_payable' => ['label' => 'Other payroll deductions payable', 'description' => 'Credited with payroll deductions payable to third parties.', 'required' => false, 'types' => ['liability']],
+        'payroll_reimbursement_payable' => ['label' => 'Payroll reimbursement payable', 'description' => 'Optional control account for approved employee reimbursements.', 'required' => false, 'types' => ['liability']],
         'retained_earnings' => ['label' => 'Retained earnings', 'description' => 'Equity account receiving fiscal-year profit or loss at year-end close.', 'required' => false, 'types' => ['equity']],
     ];
 

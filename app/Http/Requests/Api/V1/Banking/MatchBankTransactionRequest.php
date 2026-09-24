@@ -25,7 +25,7 @@ class MatchBankTransactionRequest extends FormRequest
     {
         return [
             'bank_reconciliation_id' => ['nullable', 'uuid'],
-            'matchable_type' => ['required', Rule::in(['customer_payment', 'supplier_payment', 'journal', 'gateway_settlement', 'internal_transfer'])],
+            'matchable_type' => ['required', Rule::in(['customer_payment', 'supplier_payment', 'journal', 'gateway_settlement', 'internal_transfer', 'payroll_payment', 'payroll_liability_settlement'])],
             'matchable_id' => ['required', 'uuid'],
             'amount' => ['nullable', 'integer', 'between:1,9007199254740991'],
             'confidence' => ['nullable', Rule::in(['exact', 'high', 'possible', 'manual'])],

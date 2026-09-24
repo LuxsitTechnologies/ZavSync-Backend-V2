@@ -12,6 +12,7 @@ use App\Models\FbrSubmissionAttempt;
 use App\Models\FiscalYear;
 use App\Models\Invoice;
 use App\Models\Journal;
+use App\Models\PayrollBatch;
 use App\Models\SupplierBill;
 use App\Models\User;
 use App\Services\Inventory\InventoryReportingService;
@@ -35,6 +36,9 @@ class AccountingCloseService
         $to = $period->end_date->format('Y-m-d');
         $trial = $this->reports->trialBalance($companyId, $from, $to);
         $inventory = $this->inventoryReports->reconciliation($companyId, ['as_of' => $to]);
+        $approvedUnpostedPayroll = PayrollBatch::query()->where('company_id', $companyId)->where('status', 'APPROVED')->whereBetween('accounting_date', [$from, $to])->count();
+        $payrollIntegrityFailures = PayrollBatch::query()->where('company_id', $companyId)->whereIn('status', ['POSTED', 'PARTIALLY_PAID', 'PAID'])->whereBetween('accounting_date', [$from, $to])->whereNull('journal_id')->count();
+        $outstandingPayrollLiabilities = PayrollBatch::query()->where('company_id', $companyId)->whereIn('status', ['POSTED', 'PARTIALLY_PAID'])->whereBetween('accounting_date', [$from, $to])->count();
         $checks = collect([
             $this->check('trial_balance', 'Trial balance integrity', $trial['balanced'] ? 'INFORMATION' : 'BLOCKER', $trial['balanced'] ? 'Trial balance is balanced.' : 'Trial balance is not balanced.', $trial['difference'] ?? ($trial['debit'] - $trial['credit'])),
             $this->countCheck('draft_journals', 'Draft journals', Journal::query()->where('company_id', $companyId)->where('status', 'draft')->whereBetween('posting_date', [$from, $to])->count(), 'BLOCKER'),
@@ -44,6 +48,9 @@ class AccountingCloseService
             $this->countCheck('integration_failures', 'Accounting integration failures', FbrSubmissionAttempt::query()->where('company_id', $companyId)->where('status', 'failed')->whereHas('invoice', fn ($query) => $query->whereBetween('invoice_date', [$from, $to]))->count(), 'WARNING'),
             $this->countCheck('outstanding_ar', 'Outstanding accounts receivable', Invoice::query()->where('company_id', $companyId)->where('balance_due', '>', 0)->count(), 'INFORMATION'),
             $this->countCheck('outstanding_ap', 'Outstanding accounts payable', SupplierBill::query()->where('company_id', $companyId)->where('balance_due', '>', 0)->count(), 'INFORMATION'),
+            $this->countCheck('approved_unposted_payroll', 'Approved payroll awaiting posting', $approvedUnpostedPayroll, 'BLOCKER'),
+            $this->countCheck('payroll_integrity', 'Payroll posting integrity', $payrollIntegrityFailures, 'BLOCKER'),
+            $this->countCheck('outstanding_payroll_liabilities', 'Outstanding payroll liabilities', $outstandingPayrollLiabilities, 'INFORMATION'),
         ]);
 
         return ['period_id' => $period->id, 'status' => $period->status, 'ready' => ! $checks->contains(fn (array $check): bool => $check['severity'] === 'BLOCKER' && ! $check['passed']), 'checks' => $checks->all(), 'blocker_count' => $checks->where('severity', 'BLOCKER')->where('passed', false)->count(), 'warning_count' => $checks->where('severity', 'WARNING')->where('passed', false)->count()];

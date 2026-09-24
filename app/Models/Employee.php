@@ -1,0 +1,44 @@
+<?php
+
+namespace App\Models;
+
+use Database\Factories\EmployeeFactory;
+use Illuminate\Database\Eloquent\Concerns\HasUuids;
+use Illuminate\Database\Eloquent\Factories\HasFactory;
+use Illuminate\Database\Eloquent\Model;
+use Illuminate\Database\Eloquent\Relations\BelongsTo;
+use Illuminate\Database\Eloquent\Relations\HasMany;
+use Illuminate\Database\Eloquent\Relations\HasOne;
+
+class Employee extends Model
+{
+    /** @use HasFactory<EmployeeFactory> */
+    use HasFactory, HasUuids;
+
+    protected $fillable = ['company_id', 'employee_code', 'full_name', 'email', 'phone', 'department', 'designation', 'employment_type', 'status', 'joining_date', 'leaving_date', 'location', 'created_by', 'updated_by'];
+
+    protected function casts(): array
+    {
+        return ['joining_date' => 'date:Y-m-d', 'leaving_date' => 'date:Y-m-d'];
+    }
+
+    public function company(): BelongsTo
+    {
+        return $this->belongsTo(Company::class);
+    }
+
+    public function payrollProfiles(): HasMany
+    {
+        return $this->hasMany(EmployeePayrollProfile::class);
+    }
+
+    public function currentPayrollProfile(): HasOne
+    {
+        return $this->hasOne(EmployeePayrollProfile::class)->latestOfMany('effective_from');
+    }
+
+    public function payrollEntries(): HasMany
+    {
+        return $this->hasMany(PayrollEntry::class);
+    }
+}
