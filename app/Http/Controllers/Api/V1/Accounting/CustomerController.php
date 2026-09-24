@@ -7,18 +7,17 @@ use App\Http\Controllers\Controller;
 use App\Http\Requests\Api\V1\Accounting\StoreCustomerRequest;
 use App\Http\Requests\Api\V1\Accounting\UpdateCustomerRequest;
 use App\Http\Resources\CustomerResource;
-use App\Models\Company;
 use App\Models\Customer;
+use App\Services\Accounting\CustomerService;
 use App\Services\AuditService;
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Http\Request;
 use Illuminate\Http\Resources\Json\AnonymousResourceCollection;
-use Illuminate\Support\Facades\DB;
 use Symfony\Component\HttpFoundation\Response;
 
 class CustomerController extends Controller
 {
-    public function __construct(private readonly AuditService $auditService) {}
+    public function __construct(private readonly AuditService $auditService, private readonly CustomerService $customerService) {}
 
     public function index(Request $request): AnonymousResourceCollection
     {
@@ -37,14 +36,8 @@ class CustomerController extends Controller
 
     public function store(StoreCustomerRequest $request): CustomerResource
     {
-        $customer = DB::transaction(function () use ($request): Customer {
-            Company::query()->lockForUpdate()->findOrFail($this->companyId($request));
-            $sequence = (int) Customer::query()->where('company_id', $this->companyId($request))->max('sequence') + 1;
-            $customer = Customer::query()->create([...$request->validated(), 'company_id' => $this->companyId($request), 'sequence' => $sequence, 'code' => $request->validated('code') ?? sprintf('CUS-%04d', $sequence), 'created_by' => $request->user()->id]);
-            $this->auditService->record($request, $request->user(), $this->companyId($request), 'create', 'accounts_receivable', $customer, null, $customer->toArray());
-
-            return $customer;
-        });
+        $customer = $this->customerService->create($this->companyId($request), (int) $request->user()->id, $request->validated());
+        $this->auditService->record($request, $request->user(), $this->companyId($request), 'create', 'accounts_receivable', $customer, null, $customer->toArray());
 
         return new CustomerResource($customer);
     }

@@ -7,6 +7,16 @@ use App\Models\AccountingPeriod;
 use App\Models\AccountMapping;
 use App\Models\Company;
 use App\Models\CompanyUser;
+use App\Models\CrmAccount;
+use App\Models\CrmActivity;
+use App\Models\CrmContact;
+use App\Models\CrmDeal;
+use App\Models\CrmLead;
+use App\Models\CrmPipeline;
+use App\Models\CrmPipelineStage;
+use App\Models\CrmScoreEvent;
+use App\Models\CrmScoreRule;
+use App\Models\CrmTag;
 use App\Models\Customer;
 use App\Models\Employee;
 use App\Models\EmployeePayrollComponent;
@@ -50,6 +60,9 @@ class DatabaseSeeder extends Seeder
             'accounting.close.view', 'accounting.period.close', 'accounting.period.reopen', 'accounting.year.close', 'accounting.year.reopen',
             'payroll.view', 'payroll.manage', 'payroll.calculate', 'payroll.review', 'payroll.approve', 'payroll.post',
             'payroll.pay', 'payroll.settle-liabilities', 'payroll.reports', 'payroll.configure',
+            'crm.view', 'crm.accounts.manage', 'crm.contacts.manage', 'crm.leads.manage', 'crm.deals.manage',
+            'crm.activities.manage', 'crm.pipelines.manage', 'crm.import', 'crm.scoring.manage',
+            'crm.customer.convert', 'crm.reports.view',
         ])->map(fn (string $name) => Permission::query()->create(['name' => $name]));
         $role->permissions()->attach($permissions);
         CompanyUser::query()->create(['company_id' => $company->id, 'user_id' => $user->id, 'role_id' => $role->id, 'is_active' => true]);
@@ -102,5 +115,32 @@ class DatabaseSeeder extends Seeder
         $profile = EmployeePayrollProfile::factory()->for($company)->for($employee)->create(['base_salary' => 300_000_00, 'currency' => 'PKR', 'effective_from' => '2026-01-01', 'payment_financial_account_id' => $primaryBank->id, 'created_by' => $user->id]);
         EmployeePayrollComponent::factory()->for($company)->for($profile, 'profile')->for($transport, 'component')->create(['fixed_amount' => 20_000_00]);
         PayrollPeriod::factory()->for($company)->create(['fiscal_year_id' => $fiscalYear->id, 'accounting_period_id' => $accountingPeriod->id, 'name' => 'September 2026', 'period_start' => '2026-09-01', 'period_end' => '2026-09-30', 'pay_date' => '2026-09-30', 'created_by' => $user->id]);
+
+        $pipeline = CrmPipeline::factory()->for($company)->create(['name' => 'Primary Sales Pipeline', 'description' => 'Default commercial opportunity lifecycle.', 'is_default' => true, 'created_by' => $user->id]);
+        $qualification = CrmPipelineStage::factory()->for($company)->for($pipeline, 'pipeline')->create(['name' => 'Qualification', 'position' => 1, 'probability_bps' => 2500]);
+        $proposal = CrmPipelineStage::factory()->for($company)->for($pipeline, 'pipeline')->create(['name' => 'Proposal', 'position' => 2, 'probability_bps' => 5000]);
+        $negotiation = CrmPipelineStage::factory()->for($company)->for($pipeline, 'pipeline')->create(['name' => 'Negotiation', 'position' => 3, 'probability_bps' => 7500]);
+        $won = CrmPipelineStage::factory()->for($company)->for($pipeline, 'pipeline')->won()->create(['name' => 'Won', 'position' => 4]);
+        $lost = CrmPipelineStage::factory()->for($company)->for($pipeline, 'pipeline')->lost()->create(['name' => 'Lost', 'position' => 5]);
+        $partnerPipeline = CrmPipeline::factory()->for($company)->create(['name' => 'Partner Pipeline', 'description' => 'Channel and partner opportunities.', 'is_default' => false, 'created_by' => $user->id]);
+        CrmPipelineStage::factory()->for($company)->for($partnerPipeline, 'pipeline')->create(['name' => 'Partner Review', 'position' => 1, 'probability_bps' => 3000]);
+        CrmPipelineStage::factory()->for($company)->for($partnerPipeline, 'pipeline')->won()->create(['name' => 'Partner Won', 'position' => 2]);
+        $crmAccount = CrmAccount::factory()->for($company)->create(['name' => 'Indus Digital Systems', 'industry' => 'Technology', 'owner_id' => $user->id, 'created_by' => $user->id]);
+        $crmContact = CrmContact::factory()->for($company)->for($crmAccount, 'account')->create(['first_name' => 'Hira', 'last_name' => 'Iqbal', 'email' => 'hira@indus.example', 'owner_id' => $user->id, 'is_primary' => true, 'created_by' => $user->id]);
+        $qualifiedLead = CrmLead::factory()->for($company)->qualified()->create(['account_id' => $crmAccount->id, 'contact_id' => $crmContact->id, 'first_name' => 'Hira', 'last_name' => 'Iqbal', 'company_name' => $crmAccount->name, 'email' => $crmContact->email, 'owner_id' => $user->id, 'score' => 80, 'created_by' => $user->id]);
+        CrmLead::factory()->count(4)->for($company)->create(['owner_id' => $user->id, 'created_by' => $user->id]);
+        $openDeal = CrmDeal::factory()->for($company)->for($crmAccount, 'account')->for($pipeline, 'pipeline')->for($proposal, 'stage')->create(['primary_contact_id' => $crmContact->id, 'lead_origin_id' => $qualifiedLead->id, 'owner_id' => $user->id, 'title' => 'ZavSync ERP rollout', 'amount' => 12_500_000, 'probability_bps' => 5000, 'status' => 'OPEN', 'created_by' => $user->id]);
+        CrmDeal::factory()->for($company)->for($crmAccount, 'account')->for($pipeline, 'pipeline')->for($negotiation, 'stage')->create(['primary_contact_id' => $crmContact->id, 'owner_id' => $user->id, 'title' => 'Finance automation expansion', 'amount' => 8_000_000, 'probability_bps' => 7500, 'status' => 'OPEN', 'created_by' => $user->id]);
+        $wonDeal = CrmDeal::factory()->for($company)->for($crmAccount, 'account')->for($pipeline, 'pipeline')->for($won, 'stage')->create(['primary_contact_id' => $crmContact->id, 'owner_id' => $user->id, 'title' => 'Analytics implementation', 'amount' => 5_000_000, 'probability_bps' => 10000, 'status' => 'WON', 'actual_close_date' => '2026-09-20', 'closed_at' => '2026-09-20 10:00:00', 'created_by' => $user->id]);
+        CrmDeal::factory()->for($company)->for($crmAccount, 'account')->for($pipeline, 'pipeline')->for($lost, 'stage')->create(['primary_contact_id' => $crmContact->id, 'owner_id' => $user->id, 'title' => 'Legacy migration', 'amount' => 2_500_000, 'probability_bps' => 0, 'status' => 'LOST', 'loss_reason' => 'Timing', 'actual_close_date' => '2026-09-18', 'closed_at' => '2026-09-18 10:00:00', 'created_by' => $user->id]);
+        $convertedLead = CrmLead::factory()->for($company)->create(['first_name' => 'Omar', 'last_name' => 'Shah', 'company_name' => $crmAccount->name, 'status' => 'CONVERTED', 'converted_at' => '2026-09-20 10:00:00', 'conversion_idempotency_key' => 'seed-conversion-1', 'converted_account_id' => $crmAccount->id, 'converted_contact_id' => $crmContact->id, 'converted_deal_id' => $wonDeal->id, 'owner_id' => $user->id, 'created_by' => $user->id]);
+        CrmActivity::factory()->for($company)->for($qualifiedLead, 'activityable')->create(['owner_id' => $user->id, 'type' => 'CALL', 'subject' => 'Discovery call', 'created_by' => $user->id]);
+        CrmActivity::factory()->completed()->for($company)->for($openDeal, 'activityable')->create(['owner_id' => $user->id, 'type' => 'MEETING', 'subject' => 'Proposal review', 'created_by' => $user->id]);
+        CrmActivity::factory()->for($company)->for($qualifiedLead, 'activityable')->create(['owner_id' => $user->id, 'type' => 'TASK', 'subject' => 'Overdue follow-up', 'due_at' => '2026-09-01 09:00:00', 'status' => 'PENDING', 'created_by' => $user->id]);
+        $vip = CrmTag::factory()->for($company)->create(['name' => 'VIP', 'normalized_name' => 'vip', 'created_by' => $user->id]);
+        $crmAccount->tags()->attach($vip->id, ['company_id' => $company->id]);
+        $emailRule = CrmScoreRule::factory()->for($company)->create(['name' => 'Has business email', 'target_type' => 'LEAD', 'field' => 'email', 'operator' => 'NOT_EMPTY', 'points' => 20, 'position' => 1, 'created_by' => $user->id]);
+        CrmScoreRule::factory()->for($company)->create(['name' => 'Qualified lead', 'target_type' => 'LEAD', 'field' => 'status', 'operator' => 'EQUALS', 'comparison_value' => 'QUALIFIED', 'points' => 60, 'position' => 2, 'created_by' => $user->id]);
+        CrmScoreEvent::factory()->for($company)->for($qualifiedLead, 'scoreable')->for($emailRule, 'rule')->create(['points' => 20, 'reason' => $emailRule->name, 'created_by' => $user->id]);
     }
 }

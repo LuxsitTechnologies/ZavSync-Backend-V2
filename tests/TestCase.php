@@ -7,6 +7,11 @@ use App\Models\AccountingPeriod;
 use App\Models\AccountMapping;
 use App\Models\Company;
 use App\Models\CompanyUser;
+use App\Models\CrmAccount;
+use App\Models\CrmContact;
+use App\Models\CrmLead;
+use App\Models\CrmPipeline;
+use App\Models\CrmPipelineStage;
 use App\Models\Customer;
 use App\Models\Employee;
 use App\Models\EmployeePayrollComponent;
@@ -219,5 +224,22 @@ abstract class TestCase extends BaseTestCase
         $payrollPeriod = PayrollPeriod::factory()->for($company)->create(['fiscal_year_id' => $fiscalYear->id, 'accounting_period_id' => $accountingPeriod->id, 'name' => 'September 2026', 'period_start' => '2026-09-01', 'period_end' => '2026-09-30', 'pay_date' => '2026-09-30', 'created_by' => $user->id]);
 
         return compact('user', 'company', 'fiscalYear', 'accountingPeriod', 'accounts', 'bank', 'employee', 'components', 'profile', 'rule', 'payrollPeriod');
+    }
+
+    /** @return array<string, mixed> */
+    protected function stage9CrmContext(array $permissions = ['crm.view', 'crm.accounts.manage', 'crm.contacts.manage', 'crm.leads.manage', 'crm.deals.manage', 'crm.activities.manage', 'crm.pipelines.manage', 'crm.import', 'crm.scoring.manage', 'crm.customer.convert', 'crm.reports.view']): array
+    {
+        [$user, $company] = $this->actingAsCompanyUser($permissions);
+        $pipeline = CrmPipeline::factory()->for($company)->create(['name' => 'Sales', 'is_default' => true, 'created_by' => $user->id]);
+        $stages = [
+            'open' => CrmPipelineStage::factory()->for($company)->for($pipeline, 'pipeline')->create(['name' => 'Qualification', 'position' => 1, 'probability_bps' => 2500]),
+            'won' => CrmPipelineStage::factory()->for($company)->for($pipeline, 'pipeline')->won()->create(['name' => 'Won', 'position' => 2]),
+            'lost' => CrmPipelineStage::factory()->for($company)->for($pipeline, 'pipeline')->lost()->create(['name' => 'Lost', 'position' => 3]),
+        ];
+        $account = CrmAccount::factory()->for($company)->create(['owner_id' => $user->id, 'created_by' => $user->id]);
+        $contact = CrmContact::factory()->for($company)->for($account, 'account')->create(['owner_id' => $user->id, 'is_primary' => true, 'created_by' => $user->id]);
+        $lead = CrmLead::factory()->for($company)->qualified()->create(['account_id' => $account->id, 'contact_id' => $contact->id, 'owner_id' => $user->id, 'created_by' => $user->id]);
+
+        return compact('user', 'company', 'pipeline', 'stages', 'account', 'contact', 'lead');
     }
 }
