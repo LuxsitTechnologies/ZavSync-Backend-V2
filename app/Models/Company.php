@@ -6,6 +6,7 @@ use Illuminate\Database\Eloquent\Concerns\HasUuids;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\HasMany;
+use Illuminate\Database\Eloquent\Relations\HasOne;
 
 class Company extends Model
 {
@@ -76,5 +77,20 @@ class Company extends Model
     public function accountingCloseRecords(): HasMany
     {
         return $this->hasMany(AccountingCloseRecord::class);
+    }
+
+    public function settings(): HasOne
+    {
+        return $this->hasOne(CompanySetting::class);
+    }
+
+    public function subscriptions(): HasMany
+    {
+        return $this->hasMany(Subscription::class);
+    }
+
+    public function entitlements(): HasMany
+    {
+        return $this->hasMany(CompanyEntitlement::class);
     }
 }

@@ -6,7 +6,6 @@ use App\Models\AuditLog;
 use App\Models\User;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Http\Request;
-use Illuminate\Support\Str;
 
 class AuditService
 {
@@ -23,7 +22,7 @@ class AuditService
             'old_values' => $oldValues,
             'new_values' => $newValues,
             'ip_address' => $request->ip(),
-            'correlation_id' => $request->header('X-Correlation-Id', (string) Str::uuid()),
+            'correlation_id' => $request->attributes->get('correlation_id'),
         ]);
     }
 }

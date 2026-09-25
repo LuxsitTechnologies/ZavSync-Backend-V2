@@ -52,16 +52,75 @@ use App\Http\Controllers\Api\V1\Payroll\PayrollReportController;
 use App\Http\Controllers\Api\V1\Planning\BudgetController;
 use App\Http\Controllers\Api\V1\Planning\FiscalYearController;
 use App\Http\Controllers\Api\V1\Planning\ForecastController;
+use App\Http\Controllers\Api\V1\Platform\AuditController;
+use App\Http\Controllers\Api\V1\Platform\CompanyController;
+use App\Http\Controllers\Api\V1\Platform\CompanyExportController;
+use App\Http\Controllers\Api\V1\Platform\CompanySettingController;
+use App\Http\Controllers\Api\V1\Platform\CompanyUserController;
+use App\Http\Controllers\Api\V1\Platform\DocumentController;
+use App\Http\Controllers\Api\V1\Platform\InvitationController;
+use App\Http\Controllers\Api\V1\Platform\NotificationController;
+use App\Http\Controllers\Api\V1\Platform\RoleController;
+use App\Http\Controllers\Api\V1\Platform\SecurityController;
+use App\Http\Controllers\Api\V1\Platform\SubscriptionController;
+use App\Http\Controllers\Api\V1\Platform\SystemController;
 use Illuminate\Support\Facades\Route;
 
 Route::prefix('v1')->group(function (): void {
+    Route::get('health/live', [SystemController::class, 'live'])->name('health.live');
+    Route::get('health/ready', [SystemController::class, 'ready'])->name('health.ready');
     Route::post('auth/login', [AuthController::class, 'login'])->middleware('throttle:login');
+    Route::post('auth/forgot-password', [AuthController::class, 'requestPasswordReset'])->middleware('throttle:password-reset')->name('password.email');
+    Route::post('auth/reset-password', [AuthController::class, 'resetPassword'])->middleware('throttle:password-reset')->name('password.update');
+    Route::post('invitations/accept', [InvitationController::class, 'accept'])->middleware('throttle:invitations')->name('invitations.accept');
 
     Route::middleware('auth:sanctum')->group(function (): void {
         Route::get('auth/me', [AuthController::class, 'current']);
         Route::post('auth/logout', [AuthController::class, 'logout']);
+        Route::post('auth/switch-company', [AuthController::class, 'switchCompany'])->middleware('throttle:company-switch');
+        Route::post('platform/companies', [CompanyController::class, 'store'])->middleware('throttle:company-create')->name('platform.companies.store');
 
         Route::middleware('company')->group(function (): void {
+            Route::get('platform/users', [CompanyUserController::class, 'index'])->name('platform.users.index');
+            Route::get('platform/users/{membership}', [CompanyUserController::class, 'show'])->name('platform.users.show');
+            Route::put('platform/users/{membership}/roles', [CompanyUserController::class, 'updateRoles'])->name('platform.users.roles');
+            Route::patch('platform/users/{membership}/status', [CompanyUserController::class, 'updateStatus'])->name('platform.users.status');
+            Route::delete('platform/users/{membership}', [CompanyUserController::class, 'destroy'])->name('platform.users.destroy');
+            Route::get('platform/invitations', [InvitationController::class, 'index'])->name('platform.invitations.index');
+            Route::post('platform/invitations', [InvitationController::class, 'store'])->middleware('throttle:invitations')->name('platform.invitations.store');
+            Route::post('platform/invitations/{invitation}/resend', [InvitationController::class, 'resend'])->middleware('throttle:invitations')->name('platform.invitations.resend');
+            Route::post('platform/invitations/{invitation}/revoke', [InvitationController::class, 'revoke'])->name('platform.invitations.revoke');
+            Route::get('platform/roles', [RoleController::class, 'index'])->name('platform.roles.index');
+            Route::post('platform/roles', [RoleController::class, 'store'])->name('platform.roles.store');
+            Route::put('platform/roles/{role}', [RoleController::class, 'update'])->name('platform.roles.update');
+            Route::post('platform/roles/{role}/clone', [RoleController::class, 'clone'])->name('platform.roles.clone');
+            Route::post('platform/roles/{role}/archive', [RoleController::class, 'archive'])->name('platform.roles.archive');
+            Route::get('platform/settings', [CompanySettingController::class, 'show'])->name('platform.settings.show');
+            Route::put('platform/settings', [CompanySettingController::class, 'update'])->name('platform.settings.update');
+            Route::post('platform/settings/logo', [CompanySettingController::class, 'logo'])->middleware('throttle:uploads')->name('platform.settings.logo');
+            Route::get('platform/subscription', [SubscriptionController::class, 'show'])->name('platform.subscription.show');
+            Route::put('platform/subscription', [SubscriptionController::class, 'update'])->name('platform.subscription.update');
+            Route::put('platform/entitlements/{module}', [SubscriptionController::class, 'updateEntitlement'])->name('platform.entitlements.update');
+            Route::post('platform/plans', [SubscriptionController::class, 'storePlan'])->name('platform.plans.store');
+            Route::get('platform/notifications', [NotificationController::class, 'index'])->name('platform.notifications.index');
+            Route::post('platform/notifications/read-all', [NotificationController::class, 'readAll'])->name('platform.notifications.read-all');
+            Route::post('platform/notifications/{notification}/read', [NotificationController::class, 'read'])->name('platform.notifications.read');
+            Route::get('platform/notification-preferences', [NotificationController::class, 'preferences'])->name('platform.notification-preferences.index');
+            Route::put('platform/notification-preferences', [NotificationController::class, 'updatePreferences'])->name('platform.notification-preferences.update');
+            Route::get('platform/documents', [DocumentController::class, 'index'])->name('platform.documents.index');
+            Route::post('platform/documents', [DocumentController::class, 'store'])->middleware('throttle:uploads')->name('platform.documents.store');
+            Route::get('platform/documents/{document}/download', [DocumentController::class, 'download'])->name('platform.documents.download');
+            Route::delete('platform/documents/{document}', [DocumentController::class, 'destroy'])->name('platform.documents.destroy');
+            Route::get('platform/audit', [AuditController::class, 'index'])->name('platform.audit.index');
+            Route::get('platform/security', [SecurityController::class, 'index'])->name('platform.security.index');
+            Route::delete('platform/security/sessions/{session}', [SecurityController::class, 'revokeSession'])->name('platform.security.sessions.destroy');
+            Route::delete('platform/security/sessions', [SecurityController::class, 'revokeOthers'])->name('platform.security.sessions.destroy-others');
+            Route::get('platform/system/failed-jobs', [SystemController::class, 'failedJobs'])->name('platform.system.failed-jobs');
+            Route::post('platform/system/failed-jobs/{uuid}/retry', [SystemController::class, 'retryJob'])->name('platform.system.failed-jobs.retry');
+            Route::get('platform/system/schedule', [SystemController::class, 'schedule'])->name('platform.system.schedule');
+            Route::get('platform/exports', [CompanyExportController::class, 'index'])->name('platform.exports.index');
+            Route::post('platform/exports', [CompanyExportController::class, 'store'])->name('platform.exports.store');
+            Route::get('platform/exports/{export}/download', [CompanyExportController::class, 'download'])->name('platform.exports.download');
             Route::get('accounting/accounts/selectable', [AccountController::class, 'selectable']);
             Route::patch('accounting/accounts/{account}/status', [AccountController::class, 'status']);
             Route::apiResource('accounting/accounts', AccountController::class)->except('destroy');
@@ -83,7 +142,7 @@ Route::prefix('v1')->group(function (): void {
             Route::post('accounting/invoices/{invoice}/void', [InvoiceActionController::class, 'void']);
             Route::apiResource('accounting/invoices', InvoiceController::class);
             Route::get('accounting/fbr/invoices', [FbrInvoiceController::class, 'index']);
-            Route::post('accounting/fbr/invoices/{invoice}/submit', [FbrInvoiceController::class, 'submit']);
+            Route::post('accounting/fbr/invoices/{invoice}/submit', [FbrInvoiceController::class, 'submit'])->middleware('throttle:sensitive');
             Route::get('accounting/receivables/customers', [ReceivableController::class, 'customers']);
             Route::get('accounting/receivables/invoices', [ReceivableController::class, 'invoices']);
             Route::get('accounting/receivables/payments', [ReceivableController::class, 'payments']);
@@ -130,8 +189,8 @@ Route::prefix('v1')->group(function (): void {
                 ->names('banking.accounts')
                 ->only(['index', 'store', 'show', 'update']);
             Route::get('banking/statement-imports', [BankStatementImportController::class, 'index']);
-            Route::post('banking/statement-imports/preview', [BankStatementImportController::class, 'preview']);
-            Route::post('banking/statement-imports/{statement_import}/confirm', [BankStatementImportController::class, 'confirm']);
+            Route::post('banking/statement-imports/preview', [BankStatementImportController::class, 'preview'])->middleware('throttle:sensitive');
+            Route::post('banking/statement-imports/{statement_import}/confirm', [BankStatementImportController::class, 'confirm'])->middleware('throttle:sensitive');
             Route::get('banking/transactions', [BankTransactionController::class, 'index']);
             Route::get('banking/transactions/{bank_transaction}/suggestions', [BankTransactionController::class, 'suggestions']);
             Route::post('banking/transactions/{bank_transaction}/match', [BankTransactionController::class, 'match']);
@@ -213,7 +272,7 @@ Route::prefix('v1')->group(function (): void {
             Route::apiResource('crm/accounts', CrmAccountController::class)->parameters(['accounts' => 'account'])->names('crm.accounts');
             Route::apiResource('crm/contacts', CrmContactController::class)->parameters(['contacts' => 'contact'])->names('crm.contacts');
             Route::post('crm/leads/{lead}/transition', [CrmLeadController::class, 'transition'])->name('crm.leads.transition');
-            Route::post('crm/leads/{lead}/convert', [CrmLeadController::class, 'convert'])->name('crm.leads.convert');
+            Route::post('crm/leads/{lead}/convert', [CrmLeadController::class, 'convert'])->middleware('throttle:sensitive')->name('crm.leads.convert');
             Route::apiResource('crm/leads', CrmLeadController::class)->parameters(['leads' => 'lead'])->names('crm.leads');
             Route::apiResource('crm/pipelines', CrmPipelineController::class)->parameters(['pipelines' => 'pipeline'])->names('crm.pipelines');
             Route::post('crm/deals/{deal}/transition', [CrmDealController::class, 'transition'])->name('crm.deals.transition');
@@ -224,9 +283,9 @@ Route::prefix('v1')->group(function (): void {
             Route::post('crm/tags/attach', [CrmTagController::class, 'attach'])->name('crm.tags.attach');
             Route::apiResource('crm/tags', CrmTagController::class)->parameters(['tags' => 'tag'])->names('crm.tags');
             Route::get('crm/imports', [CrmImportController::class, 'index'])->name('crm.imports.index');
-            Route::post('crm/imports/preview', [CrmImportController::class, 'preview'])->name('crm.imports.preview');
+            Route::post('crm/imports/preview', [CrmImportController::class, 'preview'])->middleware('throttle:sensitive')->name('crm.imports.preview');
             Route::get('crm/imports/{import}', [CrmImportController::class, 'show'])->name('crm.imports.show');
-            Route::post('crm/imports/{import}/confirm', [CrmImportController::class, 'confirm'])->name('crm.imports.confirm');
+            Route::post('crm/imports/{import}/confirm', [CrmImportController::class, 'confirm'])->middleware('throttle:sensitive')->name('crm.imports.confirm');
             Route::get('crm/score-rules', [CrmScoreController::class, 'index'])->name('crm.score-rules.index');
             Route::post('crm/score-rules', [CrmScoreController::class, 'store'])->name('crm.score-rules.store');
             Route::put('crm/score-rules/{rule}', [CrmScoreController::class, 'update'])->name('crm.score-rules.update');

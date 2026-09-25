@@ -6,6 +6,7 @@ use App\Models\Account;
 use App\Models\AccountingPeriod;
 use App\Models\AccountMapping;
 use App\Models\Company;
+use App\Models\CompanySetting;
 use App\Models\CompanyUser;
 use App\Models\CrmAccount;
 use App\Models\CrmActivity;
@@ -29,7 +30,11 @@ use App\Models\InvoiceLine;
 use App\Models\PayrollComponent;
 use App\Models\PayrollPeriod;
 use App\Models\Permission;
+use App\Models\Plan;
+use App\Models\PlatformModule;
+use App\Models\PlatformNotification;
 use App\Models\Role;
+use App\Models\Subscription;
 use App\Models\Supplier;
 use App\Models\User;
 use App\Models\Warehouse;
@@ -45,7 +50,7 @@ class DatabaseSeeder extends Seeder
      */
     public function run(): void
     {
-        $user = User::factory()->create(['name' => 'Finance Administrator', 'email' => 'finance@example.com']);
+        $user = User::factory()->create(['name' => 'Finance Administrator', 'email' => 'finance@example.com', 'is_platform_admin' => true]);
         $company = Company::factory()->create(['name' => 'ZavSync Demo Company', 'slug' => 'zavsync-demo']);
         $role = Role::query()->create(['company_id' => $company->id, 'name' => 'Finance Administrator', 'is_system' => true]);
         $permissions = collect([
@@ -63,9 +68,38 @@ class DatabaseSeeder extends Seeder
             'crm.view', 'crm.accounts.manage', 'crm.contacts.manage', 'crm.leads.manage', 'crm.deals.manage',
             'crm.activities.manage', 'crm.pipelines.manage', 'crm.import', 'crm.scoring.manage',
             'crm.customer.convert', 'crm.reports.view',
+            'platform.users.view', 'platform.users.manage', 'platform.invitations.manage',
+            'platform.roles.view', 'platform.roles.manage', 'platform.settings.view', 'platform.settings.manage', 'platform.settings.high-risk',
+            'platform.subscription.view', 'platform.subscription.manage', 'platform.plans.manage',
+            'platform.documents.view', 'platform.documents.manage', 'platform.audit.view', 'platform.security.view', 'platform.security.manage',
+            'platform.jobs.view', 'platform.jobs.manage', 'platform.exports.view', 'platform.exports.manage',
         ])->map(fn (string $name) => Permission::query()->create(['name' => $name]));
         $role->permissions()->attach($permissions);
         CompanyUser::query()->create(['company_id' => $company->id, 'user_id' => $user->id, 'role_id' => $role->id, 'is_active' => true]);
+        CompanySetting::query()->create([
+            'company_id' => $company->id, 'legal_name' => $company->name, 'trading_name' => 'ZavSync Demo',
+            'email' => 'finance@example.com', 'country_code' => 'PK', 'timezone' => 'Asia/Karachi', 'base_currency' => 'PKR', 'updated_by' => $user->id,
+        ]);
+        $modules = collect([
+            'accounting' => 'Accounting', 'invoicing' => 'Invoicing / FBR', 'receivables' => 'Receivables',
+            'procurement' => 'Procurement', 'payables' => 'Payables', 'inventory' => 'Inventory', 'banking' => 'Banking',
+            'budgeting' => 'Budgeting', 'payroll' => 'Payroll', 'crm' => 'CRM', 'outreach' => 'Outreach', 'ai' => 'AI Assistant', 'analytics' => 'Analytics',
+        ])->map(fn (string $name, string $key) => PlatformModule::query()->create(['key' => $key, 'name' => $name]));
+        $planDefinitions = [
+            'starter' => ['Starter', 250_000, ['accounting', 'invoicing', 'receivables'], ['users' => 5, 'employees' => 10, 'monthly_invoices' => 100, 'document_storage_mb' => 500]],
+            'growth' => ['Growth', 750_000, ['accounting', 'invoicing', 'receivables', 'procurement', 'payables', 'inventory', 'crm'], ['users' => 20, 'employees' => 50, 'monthly_invoices' => 1000, 'document_storage_mb' => 5000]],
+            'professional' => ['Professional', 1_500_000, ['accounting', 'invoicing', 'receivables', 'procurement', 'payables', 'inventory', 'banking', 'budgeting', 'payroll', 'crm'], ['users' => 100, 'employees' => 500, 'monthly_invoices' => -1, 'document_storage_mb' => 25_000]],
+            'enterprise' => ['Enterprise', null, $modules->keys()->all(), ['users' => -1, 'employees' => -1, 'monthly_invoices' => -1, 'document_storage_mb' => -1]],
+        ];
+        $plans = collect($planDefinitions)->map(function (array $definition, string $code): Plan {
+            [$name, $price, $moduleKeys, $limits] = $definition;
+            $plan = Plan::query()->create(['code' => $code, 'name' => $name, 'price_minor' => $price, 'currency' => 'PKR', 'billing_interval' => 'monthly', 'usage_limits' => $limits, 'features' => []]);
+            $plan->modules()->attach($moduleKeys, ['is_enabled' => true]);
+
+            return $plan;
+        });
+        Subscription::query()->create(['company_id' => $company->id, 'plan_id' => $plans['professional']->id, 'status' => 'ACTIVE', 'billing_interval' => 'monthly', 'starts_at' => now(), 'renews_at' => now()->addMonth()]);
+        PlatformNotification::query()->create(['company_id' => $company->id, 'recipient_id' => $user->id, 'type' => 'security.login', 'channel' => 'IN_APP', 'title' => 'Platform administration ready', 'message' => 'Review company settings, roles, and production-readiness checks.', 'delivery_state' => 'DELIVERED', 'delivered_at' => now()]);
         $fiscalYear = FiscalYear::factory()->for($company)->create(['name' => 'FY 2026', 'start_date' => '2026-01-01', 'end_date' => '2026-12-31', 'currency' => $company->currency, 'created_by' => $user->id]);
         $accountingPeriod = AccountingPeriod::factory()->for($company)->create(['fiscal_year_id' => $fiscalYear->id]);
         Account::factory()->for($company)->create(['code' => '1000', 'name' => 'Current Assets', 'created_by' => $user->id]);
