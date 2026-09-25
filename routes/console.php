@@ -1,5 +1,6 @@
 <?php
 
+use App\Jobs\ProcessDueOutreach;
 use Illuminate\Foundation\Inspiring;
 use Illuminate\Support\Facades\Artisan;
 use Illuminate\Support\Facades\DB;
@@ -28,3 +29,4 @@ Artisan::command('platform:evaluate-subscriptions', function (): void {
 Schedule::command('platform:expire-invitations')->hourly()->withoutOverlapping();
 Schedule::command('platform:evaluate-subscriptions')->daily()->withoutOverlapping();
 Schedule::command('queue:prune-failed --hours=720')->daily()->withoutOverlapping();
+Schedule::job(new ProcessDueOutreach, 'outreach')->everyMinute()->withoutOverlapping(5)->onOneServer();

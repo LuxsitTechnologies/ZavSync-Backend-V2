@@ -12,7 +12,7 @@ class EntitlementService
     /** @var array<string, string> */
     private const ROUTE_MODULES = [
         'accounting' => 'accounting', 'purchases' => 'procurement', 'inventory' => 'inventory',
-        'banking' => 'banking', 'planning' => 'budgeting', 'payroll' => 'payroll', 'crm' => 'crm',
+        'banking' => 'banking', 'planning' => 'budgeting', 'payroll' => 'payroll', 'crm' => 'crm', 'outreach' => 'outreach',
     ];
 
     /** @var array<int, string> */

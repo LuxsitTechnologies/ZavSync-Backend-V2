@@ -18,7 +18,12 @@ class CompanySetting extends Model
 
     protected $keyType = 'string';
 
-    protected $fillable = ['company_id', 'legal_name', 'trading_name', 'registration_number', 'tax_identifier', 'cnic', 'email', 'phone', 'website', 'address', 'country_code', 'timezone', 'base_currency', 'date_format', 'time_format', 'number_format', 'fiscal_year_start_month', 'default_payment_terms_days', 'default_warehouse_id', 'default_financial_account_id', 'invoice_prefix', 'purchase_prefix', 'logo_path', 'updated_by'];
+    protected $fillable = ['company_id', 'legal_name', 'trading_name', 'registration_number', 'tax_identifier', 'cnic', 'email', 'phone', 'website', 'address', 'country_code', 'timezone', 'base_currency', 'date_format', 'time_format', 'number_format', 'fiscal_year_start_month', 'default_payment_terms_days', 'default_warehouse_id', 'default_financial_account_id', 'invoice_prefix', 'purchase_prefix', 'logo_path', 'outreach_physical_address', 'outreach_footer', 'outreach_open_tracking_enabled', 'outreach_click_tracking_enabled', 'outreach_unsubscribe_required', 'updated_by'];
+
+    protected function casts(): array
+    {
+        return ['outreach_open_tracking_enabled' => 'boolean', 'outreach_click_tracking_enabled' => 'boolean', 'outreach_unsubscribe_required' => 'boolean'];
+    }
 
     public function company(): BelongsTo
     {

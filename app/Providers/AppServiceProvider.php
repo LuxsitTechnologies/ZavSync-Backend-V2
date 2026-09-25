@@ -3,7 +3,11 @@
 namespace App\Providers;
 
 use App\Contracts\FbrGateway;
+use App\Contracts\OutboundEmailGateway;
+use App\Contracts\OutreachAiAssistant;
 use App\Services\Fbr\HttpFbrGateway;
+use App\Services\Outreach\SmtpEmailGateway;
+use App\Services\Outreach\UnavailableOutreachAiAssistant;
 use Illuminate\Cache\RateLimiting\Limit;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Http\Request;
@@ -19,6 +23,8 @@ class AppServiceProvider extends ServiceProvider
     public function register(): void
     {
         $this->app->bind(FbrGateway::class, HttpFbrGateway::class);
+        $this->app->bind(OutboundEmailGateway::class, SmtpEmailGateway::class);
+        $this->app->bind(OutreachAiAssistant::class, UnavailableOutreachAiAssistant::class);
     }
 
     /**

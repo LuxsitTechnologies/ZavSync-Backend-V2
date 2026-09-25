@@ -19,6 +19,9 @@ use App\Models\CrmScoreEvent;
 use App\Models\CrmScoreRule;
 use App\Models\CrmTag;
 use App\Models\Customer;
+use App\Models\EmailProviderConnection;
+use App\Models\EmailSendingIdentity;
+use App\Models\EmailTemplate;
 use App\Models\Employee;
 use App\Models\EmployeePayrollComponent;
 use App\Models\EmployeePayrollProfile;
@@ -27,6 +30,8 @@ use App\Models\FiscalYear;
 use App\Models\InventoryItem;
 use App\Models\Invoice;
 use App\Models\InvoiceLine;
+use App\Models\OutreachSequence;
+use App\Models\OutreachSequenceStep;
 use App\Models\PayrollComponent;
 use App\Models\PayrollPeriod;
 use App\Models\Permission;
@@ -68,6 +73,8 @@ class DatabaseSeeder extends Seeder
             'crm.view', 'crm.accounts.manage', 'crm.contacts.manage', 'crm.leads.manage', 'crm.deals.manage',
             'crm.activities.manage', 'crm.pipelines.manage', 'crm.import', 'crm.scoring.manage',
             'crm.customer.convert', 'crm.reports.view',
+            'outreach.view', 'outreach.manage', 'outreach.send', 'outreach.templates.manage',
+            'outreach.sequences.manage', 'outreach.providers.manage', 'outreach.suppressions.manage', 'outreach.reports.view',
             'platform.users.view', 'platform.users.manage', 'platform.invitations.manage',
             'platform.roles.view', 'platform.roles.manage', 'platform.settings.view', 'platform.settings.manage', 'platform.settings.high-risk',
             'platform.subscription.view', 'platform.subscription.manage', 'platform.plans.manage',
@@ -79,6 +86,7 @@ class DatabaseSeeder extends Seeder
         CompanySetting::query()->create([
             'company_id' => $company->id, 'legal_name' => $company->name, 'trading_name' => 'ZavSync Demo',
             'email' => 'finance@example.com', 'country_code' => 'PK', 'timezone' => 'Asia/Karachi', 'base_currency' => 'PKR', 'updated_by' => $user->id,
+            'outreach_physical_address' => 'ZavSync Demo Company, Karachi, Pakistan', 'outreach_footer' => 'You are receiving this email from ZavSync Demo Company.',
         ]);
         $modules = collect([
             'accounting' => 'Accounting', 'invoicing' => 'Invoicing / FBR', 'receivables' => 'Receivables',
@@ -86,10 +94,10 @@ class DatabaseSeeder extends Seeder
             'budgeting' => 'Budgeting', 'payroll' => 'Payroll', 'crm' => 'CRM', 'outreach' => 'Outreach', 'ai' => 'AI Assistant', 'analytics' => 'Analytics',
         ])->map(fn (string $name, string $key) => PlatformModule::query()->create(['key' => $key, 'name' => $name]));
         $planDefinitions = [
-            'starter' => ['Starter', 250_000, ['accounting', 'invoicing', 'receivables'], ['users' => 5, 'employees' => 10, 'monthly_invoices' => 100, 'document_storage_mb' => 500]],
-            'growth' => ['Growth', 750_000, ['accounting', 'invoicing', 'receivables', 'procurement', 'payables', 'inventory', 'crm'], ['users' => 20, 'employees' => 50, 'monthly_invoices' => 1000, 'document_storage_mb' => 5000]],
-            'professional' => ['Professional', 1_500_000, ['accounting', 'invoicing', 'receivables', 'procurement', 'payables', 'inventory', 'banking', 'budgeting', 'payroll', 'crm'], ['users' => 100, 'employees' => 500, 'monthly_invoices' => -1, 'document_storage_mb' => 25_000]],
-            'enterprise' => ['Enterprise', null, $modules->keys()->all(), ['users' => -1, 'employees' => -1, 'monthly_invoices' => -1, 'document_storage_mb' => -1]],
+            'starter' => ['Starter', 250_000, ['accounting', 'invoicing', 'receivables'], ['users' => 5, 'employees' => 10, 'monthly_invoices' => 100, 'document_storage_mb' => 500, 'daily_messages' => 0, 'active_sequences' => 0, 'enrolled_recipients' => 0, 'sending_identities' => 0]],
+            'growth' => ['Growth', 750_000, ['accounting', 'invoicing', 'receivables', 'procurement', 'payables', 'inventory', 'crm'], ['users' => 20, 'employees' => 50, 'monthly_invoices' => 1000, 'document_storage_mb' => 5000, 'daily_messages' => 0, 'active_sequences' => 0, 'enrolled_recipients' => 0, 'sending_identities' => 0]],
+            'professional' => ['Professional', 1_500_000, ['accounting', 'invoicing', 'receivables', 'procurement', 'payables', 'inventory', 'banking', 'budgeting', 'payroll', 'crm', 'outreach'], ['users' => 100, 'employees' => 500, 'monthly_invoices' => -1, 'document_storage_mb' => 25_000, 'daily_messages' => 5000, 'active_sequences' => 50, 'enrolled_recipients' => 100000, 'sending_identities' => 20]],
+            'enterprise' => ['Enterprise', null, $modules->keys()->all(), ['users' => -1, 'employees' => -1, 'monthly_invoices' => -1, 'document_storage_mb' => -1, 'daily_messages' => -1, 'active_sequences' => -1, 'enrolled_recipients' => -1, 'sending_identities' => -1]],
         ];
         $plans = collect($planDefinitions)->map(function (array $definition, string $code): Plan {
             [$name, $price, $moduleKeys, $limits] = $definition;
@@ -176,5 +184,12 @@ class DatabaseSeeder extends Seeder
         $emailRule = CrmScoreRule::factory()->for($company)->create(['name' => 'Has business email', 'target_type' => 'LEAD', 'field' => 'email', 'operator' => 'NOT_EMPTY', 'points' => 20, 'position' => 1, 'created_by' => $user->id]);
         CrmScoreRule::factory()->for($company)->create(['name' => 'Qualified lead', 'target_type' => 'LEAD', 'field' => 'status', 'operator' => 'EQUALS', 'comparison_value' => 'QUALIFIED', 'points' => 60, 'position' => 2, 'created_by' => $user->id]);
         CrmScoreEvent::factory()->for($company)->for($qualifiedLead, 'scoreable')->for($emailRule, 'rule')->create(['points' => 20, 'reason' => $emailRule->name, 'created_by' => $user->id]);
+        $providerConnection = EmailProviderConnection::factory()->for($company)->create(['name' => 'Demo SMTP', 'status' => 'DISCONNECTED', 'last_verified_at' => null, 'created_by' => $user->id]);
+        $sendingIdentity = EmailSendingIdentity::factory()->for($company)->for($providerConnection, 'connection')->create(['from_email' => 'outreach@zavsync.example', 'from_name' => 'ZavSync Demo', 'verification_status' => 'PENDING', 'verified_at' => null, 'is_default' => true, 'created_by' => $user->id]);
+        $outreachTemplate = EmailTemplate::factory()->for($company)->create(['name' => 'CRM introduction', 'subject' => 'A better workflow for {{account.name}}', 'body_text' => "Hello {{contact.first_name}},\n\nI would like to share how {{company.name}} can help your team.\n\nRegards,\n{{sender.name}}", 'allowed_variables' => ['account.name', 'contact.first_name', 'company.name', 'sender.name'], 'created_by' => $user->id]);
+        $outreachSequence = OutreachSequence::factory()->for($company)->for($sendingIdentity, 'sendingIdentity')->create(['name' => 'CRM introduction sequence', 'status' => 'DRAFT', 'created_by' => $user->id]);
+        OutreachSequenceStep::factory()->for($company)->for($outreachSequence, 'sequence')->for($outreachTemplate, 'template')->create(['position' => 1, 'type' => 'EMAIL', 'subject' => $outreachTemplate->subject, 'body_text' => $outreachTemplate->body_text, 'wait_minutes' => 0]);
+        OutreachSequenceStep::factory()->for($company)->for($outreachSequence, 'sequence')->create(['position' => 2, 'type' => 'WAIT', 'subject' => null, 'body_text' => null, 'wait_minutes' => 4320]);
+        OutreachSequenceStep::factory()->for($company)->for($outreachSequence, 'sequence')->create(['position' => 3, 'type' => 'EMAIL', 'subject' => 'Following up with {{contact.first_name}}', 'body_text' => 'Hello {{contact.first_name}}, following up on my earlier note.', 'wait_minutes' => 0]);
     }
 }

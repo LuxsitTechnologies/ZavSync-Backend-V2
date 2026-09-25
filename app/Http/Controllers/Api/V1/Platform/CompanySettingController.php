@@ -39,6 +39,9 @@ class CompanySettingController extends Controller
             'default_payment_terms_days' => ['sometimes', 'integer', 'between:0,365'], 'default_warehouse_id' => ['nullable', 'uuid'],
             'default_financial_account_id' => ['nullable', 'uuid'], 'invoice_prefix' => ['sometimes', 'alpha_dash', 'max:20'],
             'purchase_prefix' => ['sometimes', 'alpha_dash', 'max:20'],
+            'outreach_physical_address' => ['nullable', 'string', 'max:2000'], 'outreach_footer' => ['nullable', 'string', 'max:5000'],
+            'outreach_open_tracking_enabled' => ['sometimes', 'boolean'], 'outreach_click_tracking_enabled' => ['sometimes', 'boolean'],
+            'outreach_unsubscribe_required' => ['sometimes', 'accepted'],
         ]);
         $company = Company::query()->findOrFail($companyId);
         $old = $this->settings->get($company)->toArray();

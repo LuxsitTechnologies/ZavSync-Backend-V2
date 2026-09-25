@@ -6,6 +6,8 @@ use App\Models\Account;
 use App\Models\AccountingPeriod;
 use App\Models\AccountMapping;
 use App\Models\Company;
+use App\Models\CompanyEntitlement;
+use App\Models\CompanySetting;
 use App\Models\CompanyUser;
 use App\Models\CrmAccount;
 use App\Models\CrmContact;
@@ -13,16 +15,22 @@ use App\Models\CrmLead;
 use App\Models\CrmPipeline;
 use App\Models\CrmPipelineStage;
 use App\Models\Customer;
+use App\Models\EmailProviderConnection;
+use App\Models\EmailSendingIdentity;
+use App\Models\EmailTemplate;
 use App\Models\Employee;
 use App\Models\EmployeePayrollComponent;
 use App\Models\EmployeePayrollProfile;
 use App\Models\FinancialAccount;
 use App\Models\FiscalYear;
 use App\Models\InventoryItem;
+use App\Models\OutreachSequence;
+use App\Models\OutreachSequenceStep;
 use App\Models\PayrollComponent;
 use App\Models\PayrollPeriod;
 use App\Models\PayrollStatutoryRule;
 use App\Models\Permission;
+use App\Models\PlatformModule;
 use App\Models\Role;
 use App\Models\Supplier;
 use App\Models\User;
@@ -241,5 +249,24 @@ abstract class TestCase extends BaseTestCase
         $lead = CrmLead::factory()->for($company)->qualified()->create(['account_id' => $account->id, 'contact_id' => $contact->id, 'owner_id' => $user->id, 'created_by' => $user->id]);
 
         return compact('user', 'company', 'pipeline', 'stages', 'account', 'contact', 'lead');
+    }
+
+    /** @return array<string, mixed> */
+    protected function stage11OutreachContext(array $permissions = ['outreach.view', 'outreach.manage', 'outreach.send', 'outreach.templates.manage', 'outreach.sequences.manage', 'outreach.providers.manage', 'outreach.suppressions.manage', 'outreach.reports.view']): array
+    {
+        [$user, $company] = $this->actingAsCompanyUser($permissions);
+        PlatformModule::query()->firstOrCreate(['key' => 'outreach'], ['name' => 'Outreach']);
+        CompanyEntitlement::factory()->for($company)->create(['module_key' => 'outreach', 'is_enabled' => true, 'limits' => ['daily_messages' => 100, 'active_sequences' => 10, 'enrolled_recipients' => 1000, 'sending_identities' => 5], 'updated_by' => $user->id]);
+        CompanySetting::factory()->for($company)->create(['legal_name' => $company->name, 'timezone' => 'Asia/Karachi', 'outreach_physical_address' => 'Test Company, Karachi, Pakistan', 'outreach_footer' => 'Test outreach footer', 'updated_by' => $user->id]);
+        $connection = EmailProviderConnection::factory()->for($company)->create(['name' => 'Test SMTP', 'status' => 'CONNECTED', 'created_by' => $user->id]);
+        $identity = EmailSendingIdentity::factory()->for($company)->for($connection, 'connection')->create(['from_email' => 'sender@example.test', 'from_name' => 'Test Sender', 'is_default' => true, 'verification_status' => 'VERIFIED', 'created_by' => $user->id]);
+        $template = EmailTemplate::factory()->for($company)->create(['name' => 'Introduction', 'subject' => 'Hello {{contact.first_name}}', 'body_text' => 'Hello {{contact.first_name}} from {{company.name}}.', 'body_html' => '<p>Hello {{contact.first_name}} from {{company.name}}.</p>', 'allowed_variables' => ['contact.first_name', 'company.name'], 'created_by' => $user->id]);
+        $sequence = OutreachSequence::factory()->for($company)->for($identity, 'sendingIdentity')->create(['name' => 'Introduction sequence', 'status' => 'DRAFT', 'created_by' => $user->id]);
+        OutreachSequenceStep::factory()->for($company)->for($sequence, 'sequence')->for($template, 'template')->create(['position' => 1, 'type' => 'EMAIL', 'subject' => $template->subject, 'body_text' => $template->body_text, 'wait_minutes' => 0]);
+        $account = CrmAccount::factory()->for($company)->create(['owner_id' => $user->id, 'created_by' => $user->id]);
+        $contact = CrmContact::factory()->for($company)->for($account, 'account')->create(['first_name' => 'Ayesha', 'last_name' => 'Khan', 'email' => 'ayesha@example.test', 'status' => 'ACTIVE', 'owner_id' => $user->id, 'created_by' => $user->id]);
+        $lead = CrmLead::factory()->for($company)->create(['first_name' => 'Bilal', 'last_name' => 'Ali', 'email' => 'bilal@example.test', 'status' => 'QUALIFIED', 'owner_id' => $user->id, 'created_by' => $user->id]);
+
+        return compact('user', 'company', 'connection', 'identity', 'template', 'sequence', 'account', 'contact', 'lead');
     }
 }
