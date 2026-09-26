@@ -5,14 +5,18 @@ namespace App\Providers;
 use App\Contracts\AiChatProvider;
 use App\Contracts\AiToolRegistry;
 use App\Contracts\AiUsageMeter;
+use App\Contracts\CalendarGateway;
 use App\Contracts\EmbeddingProvider;
 use App\Contracts\FbrGateway;
 use App\Contracts\OutboundEmailGateway;
 use App\Contracts\OutreachAiAssistant;
+use App\Contracts\VectorStore;
 use App\Services\Ai\BusinessToolRegistry;
 use App\Services\Ai\CopilotOutreachAiAssistant;
 use App\Services\Ai\DatabaseAiUsageMeter;
+use App\Services\Ai\LocalVectorStore;
 use App\Services\Ai\OpenAiProvider;
+use App\Services\Ai\UnavailableCalendarGateway;
 use App\Services\Fbr\HttpFbrGateway;
 use App\Services\Outreach\SmtpEmailGateway;
 use Illuminate\Cache\RateLimiting\Limit;
@@ -35,6 +39,8 @@ class AppServiceProvider extends ServiceProvider
         $this->app->bind(EmbeddingProvider::class, OpenAiProvider::class);
         $this->app->bind(AiUsageMeter::class, DatabaseAiUsageMeter::class);
         $this->app->bind(AiToolRegistry::class, BusinessToolRegistry::class);
+        $this->app->bind(VectorStore::class, LocalVectorStore::class);
+        $this->app->bind(CalendarGateway::class, UnavailableCalendarGateway::class);
         $this->app->bind(OutreachAiAssistant::class, CopilotOutreachAiAssistant::class);
     }
 

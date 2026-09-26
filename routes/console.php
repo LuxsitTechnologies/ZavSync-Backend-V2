@@ -1,9 +1,12 @@
 <?php
 
+use App\Jobs\PrepareCompanyBriefing;
 use App\Jobs\ProcessDueOutreach;
+use App\Jobs\RefreshCompanyIntelligence;
 use App\Models\AiActionProposal;
 use App\Models\AiConversation;
 use App\Models\AiUsageRecord;
+use App\Models\Company;
 use App\Models\CompanySetting;
 use Illuminate\Foundation\Inspiring;
 use Illuminate\Support\Facades\Artisan;
@@ -45,9 +48,25 @@ Artisan::command('ai:prune-data', function (): void {
     $this->info("Pruned {$conversations} AI conversation(s) and {$usageRecords} usage record(s).");
 })->purpose('Apply company AI conversation and usage retention policies');
 
+Artisan::command('intelligence:dispatch-refresh', function (): void {
+    Company::query()->where('is_active', true)->whereHas('entitlements', fn ($query) => $query->where('module_key', 'ai')->where('is_enabled', true))->orderBy('id')->chunk(100, function ($companies): void {
+        $companies->each(fn (Company $company) => RefreshCompanyIntelligence::dispatch($company->id, 'scheduled:'.now()->format('Y-m-d-H'))->onQueue('ai'));
+    });
+    $this->info('Queued bounded company intelligence refresh jobs.');
+})->purpose('Dispatch company-scoped operational intelligence refresh jobs');
+
+Artisan::command('intelligence:dispatch-briefings', function (): void {
+    Company::query()->where('is_active', true)->whereHas('entitlements', fn ($query) => $query->where('module_key', 'ai')->where('is_enabled', true))->orderBy('id')->chunk(100, function ($companies): void {
+        $companies->each(fn (Company $company) => PrepareCompanyBriefing::dispatch($company->id, 'TODAY', 'scheduled:'.now()->toDateString())->onQueue('ai'));
+    });
+    $this->info('Queued bounded company management briefing jobs.');
+})->purpose('Dispatch company-scoped deterministic management briefings');
+
 Schedule::command('platform:expire-invitations')->hourly()->withoutOverlapping();
 Schedule::command('platform:evaluate-subscriptions')->daily()->withoutOverlapping();
 Schedule::command('queue:prune-failed --hours=720')->daily()->withoutOverlapping();
 Schedule::job(new ProcessDueOutreach, 'outreach')->everyMinute()->withoutOverlapping(5)->onOneServer();
 Schedule::command('ai:expire-proposals')->everyFiveMinutes()->withoutOverlapping(5)->onOneServer();
 Schedule::command('ai:prune-data')->daily()->withoutOverlapping()->onOneServer();
+Schedule::command('intelligence:dispatch-refresh')->hourly()->withoutOverlapping(55)->onOneServer();
+Schedule::command('intelligence:dispatch-briefings')->dailyAt('06:00')->withoutOverlapping()->onOneServer();

@@ -22,7 +22,8 @@ class KnowledgeRetrievalService
     ) {}
 
     /** @return array<int, array<string, mixed>> */
-    public function search(User $user, string $companyId, string $query, int $limit = 6): array
+    /** @param array{source_ids?:array<int,string>,chunk_ids?:array<int,string>} $filters */
+    public function search(User $user, string $companyId, string $query, int $limit = 6, array $filters = []): array
     {
         if (! $user->hasCompanyPermission($companyId, 'ai.knowledge.view')) {
             return [];
@@ -31,6 +32,8 @@ class KnowledgeRetrievalService
         $chunksQuery = KnowledgeChunk::query()
             ->with('source.document')
             ->where('company_id', $companyId)
+            ->when($filters['source_ids'] ?? [], fn ($chunks, array $sourceIds) => $chunks->whereIn('knowledge_source_id', $sourceIds))
+            ->when($filters['chunk_ids'] ?? [], fn ($chunks, array $chunkIds) => $chunks->whereIn('id', $chunkIds))
             ->whereHas('source', function ($source) use ($permissions): void {
                 $source->where('status', 'READY');
                 if (! in_array('*', $permissions, true)) {
@@ -98,6 +101,8 @@ class KnowledgeRetrievalService
                     'content' => $chunk->content,
                     'excerpt' => Str::limit($chunk->content, 500, '…'),
                     'locator' => $chunk->locator ?? [],
+                    'source_version' => $chunk->source_version,
+                    'access_permission' => $chunk->source->access_permission,
                     'score' => $ranked['score'],
                 ];
             })->all();

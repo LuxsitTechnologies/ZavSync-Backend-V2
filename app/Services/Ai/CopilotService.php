@@ -100,11 +100,13 @@ PROMPT;
                 }
                 $conversation->touch();
             });
-            $this->usage->record($companyId, $user->id, ['conversation_id' => $conversation->id, 'message_id' => $assistant->id, 'provider' => $result->provider, 'model' => $result->model, 'operation' => 'CHAT', 'input_tokens' => $inputTokens, 'output_tokens' => $outputTokens, 'cost_minor' => $costMinor, 'metadata' => ['tool_count' => count($toolResults), 'latency_ms' => $latencyMs]]);
+            $this->usage->record($companyId, $user->id, ['conversation_id' => $conversation->id, 'message_id' => $assistant->id, 'provider' => $result->provider, 'model' => $result->model, 'operation' => 'CHAT', 'input_tokens' => $inputTokens, 'output_tokens' => $outputTokens, 'cost_minor' => $costMinor, 'metadata' => ['tool_count' => count($toolResults), 'retrieval_count' => count($knowledge), 'citation_count' => count(array_unique($result->citationOrdinals)), 'proposal_count' => count($result->proposedActions), 'latency_ms' => $latencyMs]]);
 
             return $assistant->fresh()->load(['citations.source', 'toolRuns']);
         } catch (\Throwable $exception) {
-            $assistant->update(['content' => 'The request could not be completed.', 'status' => 'FAILED', 'metadata' => [...($assistant->metadata ?? []), 'error_code' => $exception instanceof PlatformException ? $exception->errorCode : 'AI_RESPONSE_FAILED']]);
+            $errorCode = $exception instanceof PlatformException ? $exception->errorCode : 'AI_RESPONSE_FAILED';
+            $assistant->update(['content' => 'The request could not be completed.', 'status' => 'FAILED', 'metadata' => [...($assistant->metadata ?? []), 'error_code' => $errorCode]]);
+            $this->usage->record($companyId, $user->id, ['conversation_id' => $conversation->id, 'message_id' => $assistant->id, 'provider' => $configuration->provider, 'model' => $configuration->chat_model, 'operation' => 'CHAT_FAILED', 'input_tokens' => 0, 'output_tokens' => 0, 'cost_minor' => 0, 'metadata' => ['error_category' => $errorCode, 'retrieval_count' => count($knowledge)]]);
             throw $exception;
         }
     }

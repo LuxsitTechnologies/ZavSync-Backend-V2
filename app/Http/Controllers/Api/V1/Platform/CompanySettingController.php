@@ -45,6 +45,7 @@ class CompanySettingController extends Controller
             'ai_conversation_retention_days' => ['sometimes', 'integer', 'between:30,3650'],
             'ai_usage_retention_days' => ['sometimes', 'integer', 'between:30,3650'],
             'ai_allow_external_provider' => ['sometimes', 'boolean'],
+            'ai_scheduled_intelligence_enabled' => ['sometimes', 'boolean'],
         ]);
         $company = Company::query()->findOrFail($companyId);
         $old = $this->settings->get($company)->toArray();

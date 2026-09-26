@@ -290,6 +290,12 @@ abstract class TestCase extends BaseTestCase
         return compact('user', 'company', 'provider');
     }
 
+    /** @return array{user:User,company:Company,provider:AiProviderConfiguration} */
+    protected function stage13IntelligenceContext(array $permissions = ['intelligence.view', 'intelligence.manage', 'intelligence.anomalies.view', 'intelligence.forecasts.view', 'intelligence.scenarios.manage', 'intelligence.briefings.view', 'intelligence.schedule.manage', 'intelligence.calendar.manage', 'intelligence.observability.view', 'intelligence.evaluations.manage', 'ai.actions.propose', 'ai.actions.review', 'ai.actions.approve', 'ai.actions.execute', 'ai.usage.view', 'accounting.view', 'accounting.close.view', 'payables.view', 'inventory.view', 'banking.view', 'banking.cashflow', 'payroll.reports', 'crm.view', 'crm.activities.manage', 'outreach.reports.view', 'platform.jobs.view']): array
+    {
+        return $this->stage12AiContext($permissions);
+    }
+
     /** @param array<int, AiChatResult> $chatResults @param array<int, array<int, int>> $vectors */
     protected function bindFakeAiProvider(array $chatResults = [], array $vectors = [[100, 50, 25]]): object
     {

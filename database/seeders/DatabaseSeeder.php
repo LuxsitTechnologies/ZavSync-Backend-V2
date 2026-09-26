@@ -8,6 +8,8 @@ use App\Models\AccountMapping;
 use App\Models\AiConversation;
 use App\Models\AiEvaluationCase;
 use App\Models\AiProviderConfiguration;
+use App\Models\AiProviderReconciliation;
+use App\Models\AnomalyResult;
 use App\Models\Company;
 use App\Models\CompanySetting;
 use App\Models\CompanyUser;
@@ -30,10 +32,13 @@ use App\Models\EmployeePayrollComponent;
 use App\Models\EmployeePayrollProfile;
 use App\Models\FinancialAccount;
 use App\Models\FiscalYear;
+use App\Models\IntelligenceBriefing;
+use App\Models\IntelligenceForecast;
 use App\Models\InventoryItem;
 use App\Models\Invoice;
 use App\Models\InvoiceLine;
 use App\Models\KnowledgeSource;
+use App\Models\OperationalPrioritySignal;
 use App\Models\OutreachSequence;
 use App\Models\OutreachSequenceStep;
 use App\Models\PayrollComponent;
@@ -87,6 +92,9 @@ class DatabaseSeeder extends Seeder
             'ai.copilot.use', 'ai.knowledge.view', 'ai.knowledge.manage', 'ai.tools.use',
             'ai.actions.propose', 'ai.actions.review', 'ai.actions.approve', 'ai.actions.execute',
             'ai.providers.view', 'ai.providers.manage', 'ai.usage.view', 'ai.evaluations.view', 'ai.evaluations.manage',
+            'intelligence.view', 'intelligence.manage', 'intelligence.anomalies.view', 'intelligence.forecasts.view',
+            'intelligence.scenarios.manage', 'intelligence.briefings.view', 'intelligence.schedule.manage',
+            'intelligence.calendar.manage', 'intelligence.observability.view', 'intelligence.evaluations.manage',
         ])->map(fn (string $name) => Permission::query()->create(['name' => $name]));
         $role->permissions()->attach($permissions);
         CompanyUser::query()->create(['company_id' => $company->id, 'user_id' => $user->id, 'role_id' => $role->id, 'is_active' => true]);
@@ -202,5 +210,10 @@ class DatabaseSeeder extends Seeder
         KnowledgeSource::query()->create(['company_id' => $company->id, 'source_type' => 'NOTE', 'title' => 'Month-end close policy', 'content' => 'Review reconciliations, resolve exceptions, approve draft adjustments, and close the accounting period only after the readiness checks pass.', 'access_permission' => 'accounting.close.view', 'status' => 'PENDING', 'checksum_sha256' => hash('sha256', 'Review reconciliations, resolve exceptions, approve draft adjustments, and close the accounting period only after the readiness checks pass.'), 'version' => 1, 'chunk_count' => 0, 'created_by' => $user->id]);
         AiConversation::query()->create(['company_id' => $company->id, 'user_id' => $user->id, 'title' => 'Welcome to ZavSync Copilot']);
         AiEvaluationCase::query()->create(['company_id' => $company->id, 'created_by' => $user->id, 'name' => 'Close policy grounding', 'prompt' => 'Summarize our month-end close policy.', 'expected_citations' => ['Month-end close policy'], 'expected_tools' => [], 'forbidden_actions' => ['JOURNAL_POST'], 'is_active' => true]);
+        OperationalPrioritySignal::factory()->for($company)->create(['source_module' => 'crm', 'category' => 'CRM', 'source_type' => 'company', 'source_id' => null, 'title' => 'Overdue CRM follow-up', 'description' => 'A seeded CRM follow-up requires attention.', 'fingerprint' => hash('sha256', 'seed-crm-priority'), 'explanation_metadata' => ['required_permission' => 'crm.view'], 'related_url' => '/crm/activities']);
+        AnomalyResult::factory()->for($company)->create(['fingerprint' => hash('sha256', 'seed-expense-anomaly')]);
+        IntelligenceForecast::factory()->for($company)->create(['fingerprint' => hash('sha256', 'seed-cash-forecast')]);
+        IntelligenceBriefing::factory()->for($company)->create(['created_by' => $user->id, 'fingerprint' => hash('sha256', 'seed-today-briefing')]);
+        AiProviderReconciliation::factory()->for($company)->create(['period_start' => '2026-09-01', 'period_end' => '2026-09-30']);
     }
 }

@@ -17,6 +17,7 @@ class PromptSecurityService
         '/dump\s+(all\s+)?(companies|tenants|users|database)/i',
         '/bypass\s+(permissions?|authorization|tenant)/i',
         '/(?:execute|run)\s+(?:this\s+)?sql/i',
+        '/(?:execute|run)\s+(?:this\s+)?(?:shell|bash|command|code|script)/i',
         '/(?:show|reveal|retrieve)\s+(?:another|other)\s+(?:company|tenant)(?:\'s)?\s+(?:data|records?)/i',
         '/(?:call|fetch|open)\s+https?:\/\//i',
     ];

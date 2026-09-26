@@ -18,11 +18,11 @@ class CompanySetting extends Model
 
     protected $keyType = 'string';
 
-    protected $fillable = ['company_id', 'legal_name', 'trading_name', 'registration_number', 'tax_identifier', 'cnic', 'email', 'phone', 'website', 'address', 'country_code', 'timezone', 'base_currency', 'date_format', 'time_format', 'number_format', 'fiscal_year_start_month', 'default_payment_terms_days', 'default_warehouse_id', 'default_financial_account_id', 'invoice_prefix', 'purchase_prefix', 'logo_path', 'outreach_physical_address', 'outreach_footer', 'outreach_open_tracking_enabled', 'outreach_click_tracking_enabled', 'outreach_unsubscribe_required', 'ai_conversation_retention_days', 'ai_usage_retention_days', 'ai_allow_external_provider', 'updated_by'];
+    protected $fillable = ['company_id', 'legal_name', 'trading_name', 'registration_number', 'tax_identifier', 'cnic', 'email', 'phone', 'website', 'address', 'country_code', 'timezone', 'base_currency', 'date_format', 'time_format', 'number_format', 'fiscal_year_start_month', 'default_payment_terms_days', 'default_warehouse_id', 'default_financial_account_id', 'invoice_prefix', 'purchase_prefix', 'logo_path', 'outreach_physical_address', 'outreach_footer', 'outreach_open_tracking_enabled', 'outreach_click_tracking_enabled', 'outreach_unsubscribe_required', 'ai_conversation_retention_days', 'ai_usage_retention_days', 'ai_allow_external_provider', 'ai_scheduled_intelligence_enabled', 'updated_by'];
 
     protected function casts(): array
     {
-        return ['outreach_open_tracking_enabled' => 'boolean', 'outreach_click_tracking_enabled' => 'boolean', 'outreach_unsubscribe_required' => 'boolean', 'ai_conversation_retention_days' => 'integer', 'ai_usage_retention_days' => 'integer', 'ai_allow_external_provider' => 'boolean'];
+        return ['outreach_open_tracking_enabled' => 'boolean', 'outreach_click_tracking_enabled' => 'boolean', 'outreach_unsubscribe_required' => 'boolean', 'ai_conversation_retention_days' => 'integer', 'ai_usage_retention_days' => 'integer', 'ai_allow_external_provider' => 'boolean', 'ai_scheduled_intelligence_enabled' => 'boolean'];
     }
 
     public function company(): BelongsTo
