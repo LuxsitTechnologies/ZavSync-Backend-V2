@@ -2,9 +2,12 @@
 
 namespace Tests;
 
+use App\Contracts\AiChatProvider;
+use App\Contracts\EmbeddingProvider;
 use App\Models\Account;
 use App\Models\AccountingPeriod;
 use App\Models\AccountMapping;
+use App\Models\AiProviderConfiguration;
 use App\Models\Company;
 use App\Models\CompanyEntitlement;
 use App\Models\CompanySetting;
@@ -35,6 +38,9 @@ use App\Models\Role;
 use App\Models\Supplier;
 use App\Models\User;
 use App\Models\Warehouse;
+use App\Services\Ai\AiChatRequest;
+use App\Services\Ai\AiChatResult;
+use App\Services\Ai\EmbeddingResult;
 use Illuminate\Foundation\Testing\TestCase as BaseTestCase;
 use Laravel\Sanctum\Sanctum;
 
@@ -268,5 +274,50 @@ abstract class TestCase extends BaseTestCase
         $lead = CrmLead::factory()->for($company)->create(['first_name' => 'Bilal', 'last_name' => 'Ali', 'email' => 'bilal@example.test', 'status' => 'QUALIFIED', 'owner_id' => $user->id, 'created_by' => $user->id]);
 
         return compact('user', 'company', 'connection', 'identity', 'template', 'sequence', 'account', 'contact', 'lead');
+    }
+
+    /** @return array{user:User,company:Company,provider:AiProviderConfiguration} */
+    protected function stage12AiContext(array $permissions = ['ai.copilot.use', 'ai.knowledge.view', 'ai.knowledge.manage', 'ai.tools.use', 'ai.actions.propose', 'ai.actions.review', 'ai.actions.approve', 'ai.actions.execute', 'ai.providers.view', 'ai.providers.manage', 'ai.usage.view', 'ai.evaluations.view', 'ai.evaluations.manage', 'platform.documents.view', 'accounting.view', 'accounting.create', 'accounting.edit', 'accounting.post', 'payables.view', 'inventory.view', 'banking.cashflow', 'payroll.reports', 'crm.view', 'crm.activities.manage', 'crm.leads.manage', 'crm.deals.manage', 'crm.reports.view', 'outreach.reports.view', 'outreach.sequences.manage', 'purchase_orders.view', 'purchase_orders.create']): array
+    {
+        [$user, $company] = $this->actingAsCompanyUser($permissions);
+        foreach (['ai', 'accounting', 'invoicing', 'receivables', 'procurement', 'payables', 'inventory', 'banking', 'payroll', 'crm', 'outreach'] as $module) {
+            PlatformModule::query()->firstOrCreate(['key' => $module], ['name' => ucfirst($module)]);
+            CompanyEntitlement::factory()->for($company)->create(['module_key' => $module, 'is_enabled' => true, 'limits' => $module === 'ai' ? ['daily_ai_requests' => 500, 'monthly_ai_tokens' => 5_000_000, 'monthly_ai_cost_minor' => 500_000, 'knowledge_sources' => 500, 'knowledge_chunks' => 100_000] : [], 'updated_by' => $user->id]);
+        }
+        CompanySetting::factory()->for($company)->create(['legal_name' => $company->name, 'ai_allow_external_provider' => true, 'updated_by' => $user->id]);
+        $provider = AiProviderConfiguration::factory()->for($company)->create(['provider' => 'openai', 'is_enabled' => true, 'updated_by' => $user->id]);
+
+        return compact('user', 'company', 'provider');
+    }
+
+    /** @param array<int, AiChatResult> $chatResults @param array<int, array<int, int>> $vectors */
+    protected function bindFakeAiProvider(array $chatResults = [], array $vectors = [[100, 50, 25]]): object
+    {
+        $fake = new class($chatResults, $vectors) implements AiChatProvider, EmbeddingProvider
+        {
+            /** @var array<int, AiChatRequest> */
+            public array $requests = [];
+
+            /** @param array<int, AiChatResult> $chatResults @param array<int, array<int, int>> $vectors */
+            public function __construct(private array $chatResults, private readonly array $vectors) {}
+
+            public function chat(AiChatRequest $request, AiProviderConfiguration $configuration): AiChatResult
+            {
+                $this->requests[] = $request;
+
+                return array_shift($this->chatResults) ?? new AiChatResult('Grounded test answer.', [], 12, 8, 3, 'test', 'test-chat');
+            }
+
+            public function embed(array $texts, AiProviderConfiguration $configuration): EmbeddingResult
+            {
+                $vectors = collect($texts)->map(fn (string $text, int $index): array => $this->vectors[$index] ?? $this->vectors[0] ?? [100, 50, 25])->all();
+
+                return new EmbeddingResult($vectors, count($texts) * 4, count($texts), 'test', 'test-embedding');
+            }
+        };
+        $this->app->instance(AiChatProvider::class, $fake);
+        $this->app->instance(EmbeddingProvider::class, $fake);
+
+        return $fake;
     }
 }

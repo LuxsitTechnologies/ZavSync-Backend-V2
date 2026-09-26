@@ -16,6 +16,25 @@ class PlatformAccessService
         }
     }
 
+    /** @return array<int, string> */
+    public function permissionNames(User $user, string $companyId): array
+    {
+        $membership = CompanyUser::query()->with(['role.permissions:id,name', 'roles.permissions:id,name'])
+            ->where('company_id', $companyId)
+            ->where('user_id', $user->id)
+            ->where('is_active', true)
+            ->first();
+
+        return collect([$membership?->role])
+            ->merge($membership?->roles ?? [])
+            ->filter()
+            ->flatMap(fn ($role) => $role->permissions)
+            ->pluck('name')
+            ->unique()
+            ->values()
+            ->all();
+    }
+
     /** @param array<int, int> $roleIds */
     public function assertCanAssignRoles(User $user, string $companyId, array $roleIds): void
     {

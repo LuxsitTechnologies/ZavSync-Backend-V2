@@ -42,6 +42,9 @@ class CompanySettingController extends Controller
             'outreach_physical_address' => ['nullable', 'string', 'max:2000'], 'outreach_footer' => ['nullable', 'string', 'max:5000'],
             'outreach_open_tracking_enabled' => ['sometimes', 'boolean'], 'outreach_click_tracking_enabled' => ['sometimes', 'boolean'],
             'outreach_unsubscribe_required' => ['sometimes', 'accepted'],
+            'ai_conversation_retention_days' => ['sometimes', 'integer', 'between:30,3650'],
+            'ai_usage_retention_days' => ['sometimes', 'integer', 'between:30,3650'],
+            'ai_allow_external_provider' => ['sometimes', 'boolean'],
         ]);
         $company = Company::query()->findOrFail($companyId);
         $old = $this->settings->get($company)->toArray();

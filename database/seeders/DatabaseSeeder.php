@@ -5,6 +5,9 @@ namespace Database\Seeders;
 use App\Models\Account;
 use App\Models\AccountingPeriod;
 use App\Models\AccountMapping;
+use App\Models\AiConversation;
+use App\Models\AiEvaluationCase;
+use App\Models\AiProviderConfiguration;
 use App\Models\Company;
 use App\Models\CompanySetting;
 use App\Models\CompanyUser;
@@ -30,6 +33,7 @@ use App\Models\FiscalYear;
 use App\Models\InventoryItem;
 use App\Models\Invoice;
 use App\Models\InvoiceLine;
+use App\Models\KnowledgeSource;
 use App\Models\OutreachSequence;
 use App\Models\OutreachSequenceStep;
 use App\Models\PayrollComponent;
@@ -80,6 +84,9 @@ class DatabaseSeeder extends Seeder
             'platform.subscription.view', 'platform.subscription.manage', 'platform.plans.manage',
             'platform.documents.view', 'platform.documents.manage', 'platform.audit.view', 'platform.security.view', 'platform.security.manage',
             'platform.jobs.view', 'platform.jobs.manage', 'platform.exports.view', 'platform.exports.manage',
+            'ai.copilot.use', 'ai.knowledge.view', 'ai.knowledge.manage', 'ai.tools.use',
+            'ai.actions.propose', 'ai.actions.review', 'ai.actions.approve', 'ai.actions.execute',
+            'ai.providers.view', 'ai.providers.manage', 'ai.usage.view', 'ai.evaluations.view', 'ai.evaluations.manage',
         ])->map(fn (string $name) => Permission::query()->create(['name' => $name]));
         $role->permissions()->attach($permissions);
         CompanyUser::query()->create(['company_id' => $company->id, 'user_id' => $user->id, 'role_id' => $role->id, 'is_active' => true]);
@@ -94,10 +101,10 @@ class DatabaseSeeder extends Seeder
             'budgeting' => 'Budgeting', 'payroll' => 'Payroll', 'crm' => 'CRM', 'outreach' => 'Outreach', 'ai' => 'AI Assistant', 'analytics' => 'Analytics',
         ])->map(fn (string $name, string $key) => PlatformModule::query()->create(['key' => $key, 'name' => $name]));
         $planDefinitions = [
-            'starter' => ['Starter', 250_000, ['accounting', 'invoicing', 'receivables'], ['users' => 5, 'employees' => 10, 'monthly_invoices' => 100, 'document_storage_mb' => 500, 'daily_messages' => 0, 'active_sequences' => 0, 'enrolled_recipients' => 0, 'sending_identities' => 0]],
-            'growth' => ['Growth', 750_000, ['accounting', 'invoicing', 'receivables', 'procurement', 'payables', 'inventory', 'crm'], ['users' => 20, 'employees' => 50, 'monthly_invoices' => 1000, 'document_storage_mb' => 5000, 'daily_messages' => 0, 'active_sequences' => 0, 'enrolled_recipients' => 0, 'sending_identities' => 0]],
-            'professional' => ['Professional', 1_500_000, ['accounting', 'invoicing', 'receivables', 'procurement', 'payables', 'inventory', 'banking', 'budgeting', 'payroll', 'crm', 'outreach'], ['users' => 100, 'employees' => 500, 'monthly_invoices' => -1, 'document_storage_mb' => 25_000, 'daily_messages' => 5000, 'active_sequences' => 50, 'enrolled_recipients' => 100000, 'sending_identities' => 20]],
-            'enterprise' => ['Enterprise', null, $modules->keys()->all(), ['users' => -1, 'employees' => -1, 'monthly_invoices' => -1, 'document_storage_mb' => -1, 'daily_messages' => -1, 'active_sequences' => -1, 'enrolled_recipients' => -1, 'sending_identities' => -1]],
+            'starter' => ['Starter', 250_000, ['accounting', 'invoicing', 'receivables'], ['users' => 5, 'employees' => 10, 'monthly_invoices' => 100, 'document_storage_mb' => 500, 'daily_messages' => 0, 'active_sequences' => 0, 'enrolled_recipients' => 0, 'sending_identities' => 0, 'daily_ai_requests' => 0, 'monthly_ai_tokens' => 0, 'monthly_ai_cost_minor' => 0, 'knowledge_sources' => 0, 'knowledge_chunks' => 0]],
+            'growth' => ['Growth', 750_000, ['accounting', 'invoicing', 'receivables', 'procurement', 'payables', 'inventory', 'crm'], ['users' => 20, 'employees' => 50, 'monthly_invoices' => 1000, 'document_storage_mb' => 5000, 'daily_messages' => 0, 'active_sequences' => 0, 'enrolled_recipients' => 0, 'sending_identities' => 0, 'daily_ai_requests' => 0, 'monthly_ai_tokens' => 0, 'monthly_ai_cost_minor' => 0, 'knowledge_sources' => 0, 'knowledge_chunks' => 0]],
+            'professional' => ['Professional', 1_500_000, ['accounting', 'invoicing', 'receivables', 'procurement', 'payables', 'inventory', 'banking', 'budgeting', 'payroll', 'crm', 'outreach', 'ai'], ['users' => 100, 'employees' => 500, 'monthly_invoices' => -1, 'document_storage_mb' => 25_000, 'daily_messages' => 5000, 'active_sequences' => 50, 'enrolled_recipients' => 100000, 'sending_identities' => 20, 'daily_ai_requests' => 500, 'monthly_ai_tokens' => 5_000_000, 'monthly_ai_cost_minor' => 250_000, 'knowledge_sources' => 500, 'knowledge_chunks' => 100_000]],
+            'enterprise' => ['Enterprise', null, $modules->keys()->all(), ['users' => -1, 'employees' => -1, 'monthly_invoices' => -1, 'document_storage_mb' => -1, 'daily_messages' => -1, 'active_sequences' => -1, 'enrolled_recipients' => -1, 'sending_identities' => -1, 'daily_ai_requests' => -1, 'monthly_ai_tokens' => -1, 'monthly_ai_cost_minor' => -1, 'knowledge_sources' => -1, 'knowledge_chunks' => -1]],
         ];
         $plans = collect($planDefinitions)->map(function (array $definition, string $code): Plan {
             [$name, $price, $moduleKeys, $limits] = $definition;
@@ -191,5 +198,9 @@ class DatabaseSeeder extends Seeder
         OutreachSequenceStep::factory()->for($company)->for($outreachSequence, 'sequence')->for($outreachTemplate, 'template')->create(['position' => 1, 'type' => 'EMAIL', 'subject' => $outreachTemplate->subject, 'body_text' => $outreachTemplate->body_text, 'wait_minutes' => 0]);
         OutreachSequenceStep::factory()->for($company)->for($outreachSequence, 'sequence')->create(['position' => 2, 'type' => 'WAIT', 'subject' => null, 'body_text' => null, 'wait_minutes' => 4320]);
         OutreachSequenceStep::factory()->for($company)->for($outreachSequence, 'sequence')->create(['position' => 3, 'type' => 'EMAIL', 'subject' => 'Following up with {{contact.first_name}}', 'body_text' => 'Hello {{contact.first_name}}, following up on my earlier note.', 'wait_minutes' => 0]);
+        AiProviderConfiguration::query()->create(['company_id' => $company->id, 'provider' => 'openai', 'chat_model' => 'gpt-5-mini', 'embedding_model' => 'text-embedding-3-small', 'settings' => ['input_cost_per_million_minor' => 0, 'output_cost_per_million_minor' => 0, 'embedding_cost_per_million_minor' => 0], 'is_enabled' => false, 'updated_by' => $user->id]);
+        KnowledgeSource::query()->create(['company_id' => $company->id, 'source_type' => 'NOTE', 'title' => 'Month-end close policy', 'content' => 'Review reconciliations, resolve exceptions, approve draft adjustments, and close the accounting period only after the readiness checks pass.', 'access_permission' => 'accounting.close.view', 'status' => 'PENDING', 'checksum_sha256' => hash('sha256', 'Review reconciliations, resolve exceptions, approve draft adjustments, and close the accounting period only after the readiness checks pass.'), 'version' => 1, 'chunk_count' => 0, 'created_by' => $user->id]);
+        AiConversation::query()->create(['company_id' => $company->id, 'user_id' => $user->id, 'title' => 'Welcome to ZavSync Copilot']);
+        AiEvaluationCase::query()->create(['company_id' => $company->id, 'created_by' => $user->id, 'name' => 'Close policy grounding', 'prompt' => 'Summarize our month-end close policy.', 'expected_citations' => ['Month-end close policy'], 'expected_tools' => [], 'forbidden_actions' => ['JOURNAL_POST'], 'is_active' => true]);
     }
 }

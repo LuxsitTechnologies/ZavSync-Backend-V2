@@ -2,12 +2,19 @@
 
 namespace App\Providers;
 
+use App\Contracts\AiChatProvider;
+use App\Contracts\AiToolRegistry;
+use App\Contracts\AiUsageMeter;
+use App\Contracts\EmbeddingProvider;
 use App\Contracts\FbrGateway;
 use App\Contracts\OutboundEmailGateway;
 use App\Contracts\OutreachAiAssistant;
+use App\Services\Ai\BusinessToolRegistry;
+use App\Services\Ai\CopilotOutreachAiAssistant;
+use App\Services\Ai\DatabaseAiUsageMeter;
+use App\Services\Ai\OpenAiProvider;
 use App\Services\Fbr\HttpFbrGateway;
 use App\Services\Outreach\SmtpEmailGateway;
-use App\Services\Outreach\UnavailableOutreachAiAssistant;
 use Illuminate\Cache\RateLimiting\Limit;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Http\Request;
@@ -24,7 +31,11 @@ class AppServiceProvider extends ServiceProvider
     {
         $this->app->bind(FbrGateway::class, HttpFbrGateway::class);
         $this->app->bind(OutboundEmailGateway::class, SmtpEmailGateway::class);
-        $this->app->bind(OutreachAiAssistant::class, UnavailableOutreachAiAssistant::class);
+        $this->app->bind(AiChatProvider::class, OpenAiProvider::class);
+        $this->app->bind(EmbeddingProvider::class, OpenAiProvider::class);
+        $this->app->bind(AiUsageMeter::class, DatabaseAiUsageMeter::class);
+        $this->app->bind(AiToolRegistry::class, BusinessToolRegistry::class);
+        $this->app->bind(OutreachAiAssistant::class, CopilotOutreachAiAssistant::class);
     }
 
     /**
@@ -41,5 +52,6 @@ class AppServiceProvider extends ServiceProvider
         RateLimiter::for('company-switch', fn (Request $request) => Limit::perMinute(30)->by((string) ($request->user()?->id ?? $request->ip())));
         RateLimiter::for('company-create', fn (Request $request) => Limit::perHour(5)->by((string) ($request->user()?->id ?? $request->ip())));
         RateLimiter::for('sensitive', fn (Request $request) => Limit::perMinute(20)->by(($request->user()?->id ?? $request->ip()).'|'.$request->header('X-Company-Id')));
+        RateLimiter::for('ai', fn (Request $request) => Limit::perMinute(30)->by(($request->user()?->id ?? $request->ip()).'|'.$request->header('X-Company-Id')));
     }
 }

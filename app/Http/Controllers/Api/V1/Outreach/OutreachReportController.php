@@ -24,6 +24,6 @@ class OutreachReportController extends Controller
 
     public function aiDraft(OutreachAiDraftRequest $request): JsonResponse
     {
-        return response()->json(['data' => $this->ai->draft($request->validated('prompt'), $request->validated('context', []))]);
+        return response()->json(['data' => $this->ai->draft($request->validated('prompt'), [...$request->validated('context', []), 'company_id' => $this->companyId($request), 'user_id' => $request->user()->id])]);
     }
 }
