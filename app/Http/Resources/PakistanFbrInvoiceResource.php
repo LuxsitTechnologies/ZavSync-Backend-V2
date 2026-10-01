@@ -11,7 +11,7 @@ class PakistanFbrInvoiceResource extends JsonResource
     public function toArray(Request $request): array
     {
         return [
-            'id' => $this->id, 'company_id' => $this->company_id, 'domain' => 'pakistan_fbr',
+            'id' => $this->id, 'company_id' => $this->company_id, 'domain' => 'pakistan_fbr', 'module_name' => 'FBR Invoicing',
             'customer_id' => $this->customer_id, 'invoice_number' => $this->invoice_number,
             'invoice_date' => $this->invoice_date->format('Y-m-d'), 'due_date' => $this->due_date?->format('Y-m-d'),
             'document_state' => $this->document_state, 'is_historical' => $this->is_historical,
@@ -28,6 +28,8 @@ class PakistanFbrInvoiceResource extends JsonResource
             'capabilities' => [
                 'accounting_posting' => false, 'payments' => false, 'amendment' => false, 'cancellation' => false,
                 'certified_print_qr' => false, 'scenario_fed_236g_236h' => false,
+                'print_data' => true, 'regulatory_print_status' => 'STAGING_CERTIFICATION_REQUIRED',
+                'qr_content' => null, 'buyer_registration_check' => false, 'reference_sync' => false,
                 'provider_submission_enabled' => (bool) config('services.fbr.pakistan_submission_enabled', false),
             ],
             'historical' => $this->when($this->is_historical, fn (): array => [

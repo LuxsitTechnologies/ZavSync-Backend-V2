@@ -29,13 +29,13 @@ class PakistanFbrSubmissionService
         [$attempt, $payload, $context] = DB::transaction(function () use ($companyId, $user, $invoice, $key): array {
             $document = PakistanFbrInvoice::query()->where('company_id', $companyId)->with('lines')->lockForUpdate()->findOrFail($invoice->id);
             if ($document->is_historical) {
-                throw ValidationException::withMessages(['invoice' => 'Historical Pakistan/FBR invoices are permanently blocked from submission, including ambiguous successes.']);
+                throw ValidationException::withMessages(['invoice' => 'Historical FBR Invoices are permanently blocked from submission, including ambiguous successes.']);
             }
             if ($document->fbr_reference_number !== null || in_array($document->fbr_status, [FbrSubmissionStatus::Accepted, FbrSubmissionStatus::Submitted], true)) {
                 return [null, null, null];
             }
             if (! config('services.fbr.pakistan_submission_enabled', false)) {
-                throw new FbrUnavailableException('Pakistan/FBR submission is disabled pending provider payload and reference-data certification.');
+                throw new FbrUnavailableException('FBR Invoicing submission is disabled pending provider payload and reference-data certification.');
             }
             $configuration = FbrCompanyConfiguration::query()->where('company_id', $companyId)->first();
             $endpoint = $configuration === null ? null : config('services.fbr.endpoints.'.mb_strtolower($configuration->environment));
@@ -43,7 +43,7 @@ class PakistanFbrSubmissionService
                 throw new FbrUnavailableException('FBR submission is not configured for this company.');
             }
             if ($document->lines->isEmpty() || $document->total <= 0) {
-                throw ValidationException::withMessages(['invoice' => 'A positive calculated Pakistan/FBR invoice is required.']);
+                throw ValidationException::withMessages(['invoice' => 'A positive calculated FBR Invoice is required.']);
             }
             if (blank($document->buyer_snapshot['registration_number'] ?? null)) {
                 throw ValidationException::withMessages(['buyer_snapshot' => 'A verified buyer NTN/CNIC is required for this submission capability.']);
@@ -52,7 +52,7 @@ class PakistanFbrSubmissionService
             $hash = hash('sha256', json_encode($payload, JSON_THROW_ON_ERROR));
             $attempt = $document->fbrAttempts()->where('idempotency_key', $key)->first();
             if ($attempt !== null && ! hash_equals($attempt->payload_hash, $hash)) {
-                throw new ConflictHttpException('The idempotency key belongs to a different Pakistan/FBR payload.');
+                throw new ConflictHttpException('The idempotency key belongs to a different FBR Invoicing payload.');
             }
             $unresolved = $document->fbrAttempts()->whereIn('status', [FbrSubmissionStatus::Pending, FbrSubmissionStatus::Failed])->latest()->first();
             if ($unresolved !== null && $unresolved->idempotency_key !== $key) {

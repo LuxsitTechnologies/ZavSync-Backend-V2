@@ -25,7 +25,7 @@ class PakistanFbrInvoiceService
             $existing = PakistanFbrInvoice::query()->where('company_id', $companyId)->where('creation_idempotency_key', $idempotencyKey)->first();
             if ($existing !== null) {
                 if (! hash_equals($existing->creation_idempotency_hash, $hash)) {
-                    throw new ConflictHttpException('The creation idempotency key belongs to a different Pakistan/FBR invoice payload.');
+                    throw new ConflictHttpException('The creation idempotency key belongs to a different FBR Invoice payload.');
                 }
 
                 return $existing->load('lines');
@@ -54,7 +54,7 @@ class PakistanFbrInvoiceService
         return DB::transaction(function () use ($companyId, $user, $invoice, $data): PakistanFbrInvoice {
             $invoice = PakistanFbrInvoice::query()->where('company_id', $companyId)->lockForUpdate()->findOrFail($invoice->id);
             if (! $invoice->isEditable()) {
-                throw ValidationException::withMessages(['invoice' => 'Historical, in-flight, uncertain, submitted or accepted Pakistan/FBR documents are immutable.']);
+                throw ValidationException::withMessages(['invoice' => 'Historical, in-flight, uncertain, submitted or accepted FBR Invoices are immutable.']);
             }
             [$header, $lines] = $this->calculate($data);
             $before = $invoice->only(['invoice_number', 'total', 'document_state']);

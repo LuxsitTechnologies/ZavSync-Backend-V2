@@ -12,6 +12,7 @@ use App\Models\PakistanFbrInvoiceLine;
 use App\Models\PakistanFbrSubmissionAttempt;
 use App\Services\Fbr\FbrSubmissionContext;
 use App\Services\Fbr\FbrSubmissionResult;
+use App\Services\Fbr\PakistanFbrPayloadMapper;
 use App\Services\Migration\LegacyInvoiceImportService;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Tests\Concerns\BuildsLegacyInvoiceSnapshots;
@@ -30,6 +31,9 @@ class PakistanFbrDomainTest extends TestCase
         $id = $this->postJson('/api/v1/pakistan-fbr/invoices', $payload, $headers)->assertCreated()
             ->assertJsonPath('total', 11800)->assertJsonPath('invoice_number', 'PKF-00000001')
             ->assertJsonPath('domain', 'pakistan_fbr')->assertJsonPath('is_historical', false)
+            ->assertJsonPath('module_name', 'FBR Invoicing')->assertJsonPath('capabilities.print_data', true)
+            ->assertJsonPath('capabilities.regulatory_print_status', 'STAGING_CERTIFICATION_REQUIRED')
+            ->assertJsonPath('capabilities.qr_content', null)->assertJsonPath('capabilities.buyer_registration_check', false)
             ->assertJsonPath('accounting_integration', 'NOT_INTEGRATED')->json('id');
         $this->postJson('/api/v1/pakistan-fbr/invoices', $payload, $headers)->assertOk()->assertJsonPath('id', $id);
         $changed = $this->payload();
@@ -145,6 +149,32 @@ class PakistanFbrDomainTest extends TestCase
         $this->assertInstanceOf(PakistanFbrInvoice::class, $line->invoice);
         $this->assertInstanceOf(PakistanFbrInvoice::class, $attempt->invoice);
         $this->assertSame($attempt->invoice->company_id, $attempt->company_id);
+    }
+
+    public function test_pending_attempt_protects_the_lease_and_revalidates_company_configuration(): void
+    {
+        $context = $this->context();
+        $invoice = $this->draft($context);
+        $gateway = $this->gateway();
+        $configuration = FbrCompanyConfiguration::query()->where('company_id', $context['company']->id)->sole();
+        $payload = app(PakistanFbrPayloadMapper::class)->map($invoice->load('lines'), $configuration);
+        PakistanFbrSubmissionAttempt::factory()->for($invoice, 'invoice')->create([
+            'company_id' => $context['company']->id, 'submitted_by' => $context['user']->id,
+            'idempotency_key' => 'in-flight', 'status' => FbrSubmissionStatus::Pending,
+            'payload_hash' => hash('sha256', json_encode($payload, JSON_THROW_ON_ERROR)),
+        ]);
+        $invoice->update(['fbr_status' => FbrSubmissionStatus::Pending]);
+        $url = "/api/v1/pakistan-fbr/invoices/{$invoice->id}/submit";
+        $headers = ['X-Company-Id' => $context['company']->id, 'Idempotency-Key' => 'in-flight'];
+        $this->postJson($url, [], $headers)->assertOk()->assertJsonPath('fbr_status', 'pending');
+        $this->postJson($url, [], [...$headers, 'Idempotency-Key' => 'another'])->assertConflict();
+        $configuration->update(['seller_business_name' => 'Changed seller']);
+        $this->postJson($url, [], $headers)->assertConflict();
+        $configuration->update(['credential' => null]);
+        $this->postJson($url, [], $headers)->assertServiceUnavailable();
+        $this->assertSame(0, $gateway->calls);
+        $this->assertDatabaseCount('pakistan_fbr_submission_attempts', 1);
+        $this->assertNoAccountingEffects();
     }
 
     /** @return array<string,mixed> */

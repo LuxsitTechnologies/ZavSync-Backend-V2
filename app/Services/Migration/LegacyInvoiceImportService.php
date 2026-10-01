@@ -13,6 +13,7 @@ use App\Models\MigrationException;
 use App\Models\PakistanFbrInvoice;
 use App\Models\User;
 use App\Services\AuditService;
+use Illuminate\Database\UniqueConstraintViolationException;
 use Illuminate\Support\Arr;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Validator;
@@ -62,7 +63,15 @@ class LegacyInvoiceImportService
         $run = $this->run($company, $actor, $sourceSystem, $fingerprint, $filename, $snapshot, $sourceCompanyId, $resumeRunId);
         $this->audit->recordOperation($actor, $company->id, 'legacy_invoice_import_started', 'migration', $run, null, ['source_system' => $sourceSystem, 'mode' => 'IMPORT']);
         try {
-            $this->mapCompany($run, $company, $sourceCompanyId);
+            try {
+                DB::transaction(function () use ($run, $company, $sourceCompanyId): void {
+                    Company::query()->whereKey($company->id)->lockForUpdate()->firstOrFail();
+                    $this->mapCompany($run, $company, $sourceCompanyId);
+                });
+            } catch (UniqueConstraintViolationException|ValidationException $exception) {
+                $this->exception($run, $company->id, 'company', $sourceCompanyId, null, 'CROSS_TENANT_REFERENCE', ['reason' => 'company_mapping_conflict']);
+                throw ValidationException::withMessages(['company' => 'The source company already has a different tenant mapping.']);
+            }
             if ($source['invoices'] === []) {
                 $this->exception($run, $company->id, 'company', $sourceCompanyId, null, 'MISSING_COMPANY_MAPPING', ['reason' => 'no_source_invoices_for_company']);
             }
@@ -284,7 +293,6 @@ class LegacyInvoiceImportService
                     ->orWhere(fn ($query) => $query->where('company_id', $company->id)->where('source_id', '!=', $sourceCompanyId));
             })->exists();
         if ($conflict) {
-            $this->exception($run, $company->id, 'company', $sourceCompanyId, null, 'CROSS_TENANT_REFERENCE', ['reason' => 'company_mapping_conflict']);
             throw ValidationException::withMessages(['company' => 'The source company already has a different tenant mapping.']);
         }
         LegacyEntityMap::query()->firstOrCreate([

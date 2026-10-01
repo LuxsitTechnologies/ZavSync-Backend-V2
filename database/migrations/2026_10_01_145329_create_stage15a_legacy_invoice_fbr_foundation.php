@@ -28,7 +28,7 @@ return new class extends Migration
             $table->timestamp('started_at')->nullable();
             $table->timestamp('completed_at')->nullable();
             $table->timestamps();
-            $table->unique(['source_system', 'source_fingerprint', 'company_id']);
+            $table->unique(['source_system', 'source_fingerprint', 'company_id'], 'legacy_import_source_fingerprint_unique');
             $table->index(['company_id', 'status', 'created_at']);
         });
 
@@ -206,7 +206,7 @@ return new class extends Migration
             $table->timestamps();
             $table->unique(['company_id', 'source_system', 'source_id']);
             $table->index(['company_id', 'fbr_reference_number']);
-            $table->index(['company_id', 'normalized_status', 'requires_review']);
+            $table->index(['company_id', 'normalized_status', 'requires_review'], 'legacy_fbr_status_review_index');
         });
     }
 

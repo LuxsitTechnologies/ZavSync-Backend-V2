@@ -97,6 +97,33 @@ class FbrLifecycleTest extends TestCase
         $this->assertStringContainsString('[REDACTED]', $stored);
     }
 
+    public function test_legacy_submitted_without_reference_cannot_resubmit_with_a_new_key(): void
+    {
+        $context = $this->stage3AccountingContext();
+        $invoiceId = $this->createDraft($context);
+        config(['services.fbr.endpoints.sandbox' => 'https://sandbox.example.test/fbr']);
+        FbrCompanyConfiguration::factory()->for($context['company'])->create(['updated_by' => $context['user']->id]);
+        $gateway = new class implements FbrGateway
+        {
+            public int $calls = 0;
+
+            public function submit(array $payload, string $idempotencyKey, FbrSubmissionContext $context): FbrSubmissionResult
+            {
+                $this->calls++;
+
+                return new FbrSubmissionResult(FbrSubmissionStatus::Submitted, null, ['status' => 'submitted']);
+            }
+        };
+        $this->app->instance(FbrGateway::class, $gateway);
+        foreach (['initial', 'new-key'] as $key) {
+            $this->postJson("/api/v1/accounting/fbr/invoices/{$invoiceId}/submit", [], ['X-Company-Id' => $context['company']->id, 'Idempotency-Key' => $key])
+                ->assertOk()->assertJsonPath('fbr_status', 'submitted');
+        }
+        $this->assertSame(1, $gateway->calls);
+        $this->assertDatabaseCount('fbr_submission_attempts', 1);
+        $this->assertDatabaseCount('journals', 0);
+    }
+
     /** @param array<string, mixed> $context */
     private function createDraft(array $context): string
     {

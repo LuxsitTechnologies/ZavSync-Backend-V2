@@ -24,7 +24,7 @@ class FbrInvoiceService
         [$attempt, $payload, $context] = DB::transaction(function () use ($companyId, $user, $invoice, $idempotencyKey): array {
             $invoice = Invoice::query()->where('company_id', $companyId)->with(['customer', 'lines'])->lockForUpdate()->findOrFail($invoice->id);
             $this->validateForSubmission($invoice);
-            if ($invoice->fbr_reference_number !== null || $invoice->fbr_status === FbrSubmissionStatus::Accepted) {
+            if ($invoice->fbr_reference_number !== null || in_array($invoice->fbr_status, [FbrSubmissionStatus::Accepted, FbrSubmissionStatus::Submitted], true)) {
                 return [null, null, null];
             }
             $configuration = FbrCompanyConfiguration::query()->where('company_id', $companyId)->first();
@@ -71,20 +71,21 @@ class FbrInvoiceService
         } catch (FbrUnavailableException $exception) {
             $safeMessage = $this->responseSanitizer->sanitize(['message' => $exception->getMessage()])['message'] ?? 'FBR is unavailable.';
             DB::transaction(function () use ($attempt, $companyId, $invoice, $safeMessage): void {
-                FbrSubmissionAttempt::query()->where('company_id', $companyId)->lockForUpdate()->findOrFail($attempt->id)->update(['status' => FbrSubmissionStatus::Failed, 'error_message' => $safeMessage, 'completed_at' => now()]);
                 Invoice::query()->where('company_id', $companyId)->lockForUpdate()->findOrFail($invoice->id)->update(['fbr_status' => FbrSubmissionStatus::Failed]);
+                FbrSubmissionAttempt::query()->where('company_id', $companyId)->lockForUpdate()->findOrFail($attempt->id)->update(['status' => FbrSubmissionStatus::Failed, 'error_message' => $safeMessage, 'completed_at' => now()]);
             });
 
             throw new FbrUnavailableException($safeMessage);
         }
         DB::transaction(function () use ($attempt, $companyId, $invoice, $result): void {
+            $invoice = Invoice::query()->where('company_id', $companyId)->lockForUpdate()->findOrFail($invoice->id);
             $metadata = $this->responseSanitizer->sanitize($result->metadata) ?? [];
             $message = $this->responseSanitizer->sanitize(['message' => $result->message])['message'] ?? null;
             FbrSubmissionAttempt::query()->where('company_id', $companyId)->lockForUpdate()->findOrFail($attempt->id)->update([
                 'status' => $result->status, 'response_metadata' => $metadata, 'reference_number' => $result->referenceNumber,
                 'error_message' => is_string($message) ? $message : null, 'completed_at' => now(),
             ]);
-            Invoice::query()->where('company_id', $companyId)->lockForUpdate()->findOrFail($invoice->id)->update([
+            $invoice->update([
                 'fbr_status' => $result->status, 'fbr_reference_number' => $result->referenceNumber, 'fbr_response_metadata' => $metadata,
             ]);
         });

@@ -38,12 +38,12 @@ class PakistanFbrInvoice extends Model
     {
         static::updating(function (self $invoice): void {
             if ($invoice->getOriginal('is_historical') && array_diff(array_keys($invoice->getDirty()), ['migration_reconciliation_state', 'updated_at']) !== []) {
-                throw new LogicException('Historical Pakistan/FBR documents are immutable evidence.');
+                throw new LogicException('Historical FBR Invoices are immutable evidence.');
             }
         });
         static::deleting(function (self $invoice): void {
             if ($invoice->is_historical || $invoice->fbr_status !== FbrSubmissionStatus::NotSubmitted) {
-                throw new LogicException('Historical or submitted Pakistan/FBR documents cannot be deleted.');
+                throw new LogicException('Historical or submitted FBR Invoices cannot be deleted.');
             }
         });
     }

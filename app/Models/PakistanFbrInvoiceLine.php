@@ -25,7 +25,7 @@ class PakistanFbrInvoiceLine extends Model
     {
         $guard = function (self $line): void {
             if (! $line->invoice->isEditable()) {
-                throw new LogicException('The Pakistan/FBR document lines are immutable.');
+                throw new LogicException('The FBR Invoice lines are immutable.');
             }
         };
         static::updating($guard);
