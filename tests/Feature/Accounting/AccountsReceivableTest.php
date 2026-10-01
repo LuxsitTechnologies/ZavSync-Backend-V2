@@ -6,6 +6,7 @@ use App\Models\CustomerPayment;
 use App\Models\Invoice;
 use App\Models\Journal;
 use Illuminate\Foundation\Testing\RefreshDatabase;
+use Illuminate\Support\Carbon;
 use Laravel\Sanctum\Sanctum;
 use Tests\TestCase;
 
@@ -53,6 +54,7 @@ class AccountsReceivableTest extends TestCase
 
     public function test_overdue_filter_and_status_are_calculated_from_due_date_and_balance(): void
     {
+        $this->travelTo(Carbon::parse('2026-09-23 12:00:00'));
         $context = $this->stage3AccountingContext();
         $overdue = $this->postedInvoice($context, '2026-08-01', '2026-08-31', 10000, 10000);
         $this->postedInvoice($context, '2026-09-01', '2026-09-30', 20000, 20000, 2);

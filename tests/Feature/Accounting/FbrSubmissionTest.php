@@ -5,6 +5,8 @@ namespace Tests\Feature\Accounting;
 use App\Contracts\FbrGateway;
 use App\Enums\FbrSubmissionStatus;
 use App\Exceptions\FbrUnavailableException;
+use App\Models\FbrCompanyConfiguration;
+use App\Services\Fbr\FbrSubmissionContext;
 use App\Services\Fbr\FbrSubmissionResult;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Tests\TestCase;
@@ -17,12 +19,11 @@ class FbrSubmissionTest extends TestCase
     {
         $context = $this->stage3AccountingContext();
         $invoiceId = $this->createDraft($context);
-        config(['services.fbr.token' => 'top-secret-token']);
         $gateway = new class implements FbrGateway
         {
             public int $calls = 0;
 
-            public function submit(array $payload, string $idempotencyKey): FbrSubmissionResult
+            public function submit(array $payload, string $idempotencyKey, FbrSubmissionContext $context): FbrSubmissionResult
             {
                 $this->calls++;
 
@@ -49,7 +50,7 @@ class FbrSubmissionTest extends TestCase
         {
             public int $calls = 0;
 
-            public function submit(array $payload, string $idempotencyKey): FbrSubmissionResult
+            public function submit(array $payload, string $idempotencyKey, FbrSubmissionContext $context): FbrSubmissionResult
             {
                 $this->calls++;
 
@@ -75,7 +76,7 @@ class FbrSubmissionTest extends TestCase
         {
             public bool $unavailable = true;
 
-            public function submit(array $payload, string $idempotencyKey): FbrSubmissionResult
+            public function submit(array $payload, string $idempotencyKey, FbrSubmissionContext $context): FbrSubmissionResult
             {
                 if ($this->unavailable) {
                     throw new FbrUnavailableException('FBR timeout. Retry safely.');
@@ -104,7 +105,7 @@ class FbrSubmissionTest extends TestCase
         $invoiceId = $this->createDraft($context);
         $this->app->instance(FbrGateway::class, new class implements FbrGateway
         {
-            public function submit(array $payload, string $idempotencyKey): FbrSubmissionResult
+            public function submit(array $payload, string $idempotencyKey, FbrSubmissionContext $context): FbrSubmissionResult
             {
                 return new FbrSubmissionResult(FbrSubmissionStatus::Rejected, null, ['status' => 'rejected', 'errors' => ['Invalid buyer NTN']], 'Invalid buyer NTN');
             }
@@ -144,7 +145,9 @@ class FbrSubmissionTest extends TestCase
     /** @param array<string, mixed> $context */
     private function createDraft(array $context): string
     {
-        $payload = ['customer_id' => $context['customer']->id, 'invoice_date' => '2026-09-22', 'due_date' => '2026-10-22', 'currency' => 'PKR', 'lines' => [['description' => 'Services', 'quantity_milli' => 1000, 'unit' => 'unit', 'unit_price' => 100000, 'discount' => 0, 'tax_rate_bps' => 1800, 'sales_type' => 'Standardized Goods']]];
+        config(['services.fbr.endpoints.sandbox' => 'https://sandbox.example.test/fbr']);
+        FbrCompanyConfiguration::factory()->for($context['company'])->create(['updated_by' => $context['user']->id]);
+        $payload = ['customer_id' => $context['customer']->id, 'invoice_date' => '2026-09-22', 'due_date' => '2026-10-22', 'currency' => 'PKR', 'lines' => [['description' => 'Services', 'hs_code' => '9983.0000', 'fbr_rate_id' => '18', 'quantity_milli' => 1000, 'unit' => 'unit', 'unit_price' => 100000, 'discount' => 0, 'tax_rate_bps' => 1800, 'sales_type' => 'Standardized Goods']]];
 
         return (string) $this->postJson('/api/v1/accounting/invoices', $payload, $this->headers($context['company']->id, 'create-'.fake()->uuid()))->assertCreated()->json('id');
     }

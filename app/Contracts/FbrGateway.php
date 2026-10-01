@@ -2,10 +2,11 @@
 
 namespace App\Contracts;
 
+use App\Services\Fbr\FbrSubmissionContext;
 use App\Services\Fbr\FbrSubmissionResult;
 
 interface FbrGateway
 {
     /** @param array<string, mixed> $payload */
-    public function submit(array $payload, string $idempotencyKey): FbrSubmissionResult;
+    public function submit(array $payload, string $idempotencyKey, FbrSubmissionContext $context): FbrSubmissionResult;
 }

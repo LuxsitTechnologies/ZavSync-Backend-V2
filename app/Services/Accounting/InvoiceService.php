@@ -51,6 +51,9 @@ class InvoiceService
     {
         return DB::transaction(function () use ($companyId, $user, $invoice, $data): Invoice {
             $invoice = Invoice::query()->where('company_id', $companyId)->lockForUpdate()->findOrFail($invoice->id);
+            if ($invoice->fbr_reference_number !== null || in_array($invoice->fbr_status, [FbrSubmissionStatus::Accepted, FbrSubmissionStatus::Submitted, FbrSubmissionStatus::Pending, FbrSubmissionStatus::Failed], true)) {
+                throw ValidationException::withMessages(['invoice' => 'An FBR-accepted, submitted or unresolved invoice is immutable. A certified amendment workflow is not available.']);
+            }
             if ($invoice->status !== InvoiceStatus::Draft) {
                 throw ValidationException::withMessages(['invoice' => 'Posted invoice financial fields are immutable. Void and reverse the invoice to correct it.']);
             }
@@ -68,6 +71,9 @@ class InvoiceService
     {
         DB::transaction(function () use ($companyId, $invoice): void {
             $invoice = Invoice::query()->where('company_id', $companyId)->lockForUpdate()->findOrFail($invoice->id);
+            if ($invoice->fbr_reference_number !== null || in_array($invoice->fbr_status, [FbrSubmissionStatus::Accepted, FbrSubmissionStatus::Submitted, FbrSubmissionStatus::Pending, FbrSubmissionStatus::Failed], true)) {
+                throw ValidationException::withMessages(['invoice' => 'An FBR-accepted, submitted or unresolved invoice cannot be deleted.']);
+            }
             if ($invoice->status !== InvoiceStatus::Draft) {
                 throw ValidationException::withMessages(['invoice' => 'Only a draft invoice can be deleted.']);
             }

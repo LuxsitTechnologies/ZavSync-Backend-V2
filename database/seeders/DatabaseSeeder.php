@@ -30,6 +30,8 @@ use App\Models\EmailTemplate;
 use App\Models\Employee;
 use App\Models\EmployeePayrollComponent;
 use App\Models\EmployeePayrollProfile;
+use App\Models\FbrCompanyConfiguration;
+use App\Models\FbrReferenceValue;
 use App\Models\FinancialAccount;
 use App\Models\FiscalYear;
 use App\Models\IntelligenceBriefing;
@@ -41,6 +43,8 @@ use App\Models\KnowledgeSource;
 use App\Models\OperationalPrioritySignal;
 use App\Models\OutreachSequence;
 use App\Models\OutreachSequenceStep;
+use App\Models\PakistanFbrInvoice;
+use App\Models\PakistanFbrInvoiceLine;
 use App\Models\PayrollComponent;
 use App\Models\PayrollPeriod;
 use App\Models\Permission;
@@ -89,6 +93,8 @@ class DatabaseSeeder extends Seeder
             'platform.subscription.view', 'platform.subscription.manage', 'platform.plans.manage',
             'platform.documents.view', 'platform.documents.manage', 'platform.audit.view', 'platform.security.view', 'platform.security.manage',
             'platform.jobs.view', 'platform.jobs.manage', 'platform.exports.view', 'platform.exports.manage',
+            'fbr.configuration.view', 'fbr.configuration.manage', 'migration.view', 'migration.manage',
+            'pakistan_fbr.view', 'pakistan_fbr.manage', 'pakistan_fbr.submit',
             'ai.copilot.use', 'ai.knowledge.view', 'ai.knowledge.manage', 'ai.tools.use',
             'ai.actions.propose', 'ai.actions.review', 'ai.actions.approve', 'ai.actions.execute',
             'ai.providers.view', 'ai.providers.manage', 'ai.usage.view', 'ai.evaluations.view', 'ai.evaluations.manage',
@@ -102,6 +108,28 @@ class DatabaseSeeder extends Seeder
             'company_id' => $company->id, 'legal_name' => $company->name, 'trading_name' => 'ZavSync Demo',
             'email' => 'finance@example.com', 'country_code' => 'PK', 'timezone' => 'Asia/Karachi', 'base_currency' => 'PKR', 'updated_by' => $user->id,
             'outreach_physical_address' => 'ZavSync Demo Company, Karachi, Pakistan', 'outreach_footer' => 'You are receiving this email from ZavSync Demo Company.',
+        ]);
+        foreach ([
+            ['category' => 'PROVINCE', 'code' => 'SINDH', 'label' => 'Sindh'],
+            ['category' => 'PROVINCE', 'code' => 'PUNJAB', 'label' => 'Punjab'],
+            ['category' => 'PROVINCE', 'code' => 'KPK', 'label' => 'Khyber Pakhtunkhwa'],
+            ['category' => 'PROVINCE', 'code' => 'BALOCHISTAN', 'label' => 'Balochistan'],
+            ['category' => 'DOCUMENT_TYPE', 'code' => 'SALE_INVOICE', 'label' => 'Sale Invoice'],
+            ['category' => 'UOM', 'code' => 'UNIT', 'label' => 'Unit'],
+            ['category' => 'UOM', 'code' => 'KG', 'label' => 'Kilogram'],
+            ['category' => 'SALE_TYPE', 'code' => 'STANDARD', 'label' => 'Standardized Goods'],
+            ['category' => 'RATE', 'code' => '18', 'label' => '18%'],
+            ['category' => 'HS_CODE', 'code' => '9983.0000', 'label' => 'Professional services fixture'],
+            ['category' => 'SRO_SCHEDULE', 'code' => 'NOT_APPLICABLE', 'label' => 'Not applicable'],
+            ['category' => 'SRO_ITEM', 'code' => 'NOT_APPLICABLE', 'label' => 'Not applicable'],
+            ['category' => 'SCENARIO', 'code' => 'NOT_CERTIFIED', 'label' => 'Requires staging certification'],
+        ] as $reference) {
+            FbrReferenceValue::query()->create([...$reference, 'source' => 'LOCAL_FIXTURE', 'source_version' => '2026-01', 'is_active' => true]);
+        }
+        FbrCompanyConfiguration::query()->create([
+            'company_id' => $company->id, 'seller_tax_identifier' => '1234567', 'seller_business_name' => $company->name,
+            'seller_province' => 'SINDH', 'seller_address' => 'Karachi, Pakistan', 'environment' => 'SANDBOX',
+            'credential' => null, 'connection_state' => 'NOT_VERIFIED', 'updated_by' => $user->id,
         ]);
         $modules = collect([
             'accounting' => 'Accounting', 'invoicing' => 'Invoicing / FBR', 'receivables' => 'Receivables',
@@ -158,6 +186,8 @@ class DatabaseSeeder extends Seeder
         $customer = Customer::factory()->for($company)->create(['sequence' => 1, 'code' => 'CUS-0001', 'name' => 'Demo Customer', 'created_by' => $user->id]);
         $invoice = Invoice::factory()->for($company)->for($customer)->create(['sequence' => 1, 'invoice_number' => 'INV-2026-0001', 'created_by' => $user->id]);
         InvoiceLine::factory()->for($invoice)->create();
+        $pakistanInvoice = PakistanFbrInvoice::factory()->for($company)->create(['sequence' => 1, 'invoice_number' => 'PKF-00000001', 'created_by' => $user->id]);
+        PakistanFbrInvoiceLine::factory()->for($pakistanInvoice, 'invoice')->create();
         Supplier::factory()->for($company)->create(['sequence' => 1, 'code' => 'SUP-0001', 'name' => 'Demo Supplier', 'default_expense_account_id' => $expense->id, 'default_payable_account_id' => $payable->id, 'created_by' => $user->id]);
         Warehouse::factory()->for($company)->default()->create(['code' => 'MAIN', 'name' => 'Main Warehouse', 'created_by' => $user->id]);
         InventoryItem::factory()->for($company)->create([

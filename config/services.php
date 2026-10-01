@@ -36,8 +36,12 @@ return [
     ],
 
     'fbr' => [
-        'endpoint' => env('FBR_API_ENDPOINT'),
-        'token' => env('FBR_API_TOKEN'),
+        'pakistan_submission_enabled' => env('FBR_PAKISTAN_SUBMISSION_ENABLED', false),
+        'endpoints' => [
+            'sandbox' => env('FBR_SANDBOX_API_ENDPOINT'),
+            'production' => env('FBR_PRODUCTION_API_ENDPOINT'),
+        ],
+        'connect_timeout' => env('FBR_API_CONNECT_TIMEOUT', 5),
         'timeout' => env('FBR_API_TIMEOUT', 15),
     ],
 

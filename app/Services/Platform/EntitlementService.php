@@ -51,7 +51,7 @@ class EntitlementService
     {
         $segment = explode('/', trim($path, '/'))[2] ?? '';
         $module = match (true) {
-            str_starts_with($path, 'api/v1/accounting/invoices'), str_starts_with($path, 'api/v1/accounting/fbr') => 'invoicing',
+            str_starts_with($path, 'api/v1/accounting/invoices'), str_starts_with($path, 'api/v1/accounting/fbr'), str_starts_with($path, 'api/v1/pakistan-fbr') => 'invoicing',
             str_starts_with($path, 'api/v1/accounting/receivables') => 'receivables',
             str_starts_with($path, 'api/v1/accounting/payables') => 'payables',
             str_starts_with($path, 'api/v1/accounting/inventory') => 'inventory',

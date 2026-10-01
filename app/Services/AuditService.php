@@ -25,4 +25,21 @@ class AuditService
             'correlation_id' => $request->attributes->get('correlation_id'),
         ]);
     }
+
+    /** @param array<string, mixed>|null $oldValues @param array<string, mixed>|null $newValues */
+    public function recordOperation(User $user, string $companyId, string $action, string $module, Model $entity, ?array $oldValues = null, ?array $newValues = null): AuditLog
+    {
+        return AuditLog::query()->create([
+            'company_id' => $companyId,
+            'user_id' => $user->getKey(),
+            'action' => $action,
+            'module' => $module,
+            'entity_type' => $entity->getMorphClass(),
+            'entity_id' => (string) $entity->getKey(),
+            'old_values' => $oldValues,
+            'new_values' => $newValues,
+            'ip_address' => null,
+            'correlation_id' => null,
+        ]);
+    }
 }

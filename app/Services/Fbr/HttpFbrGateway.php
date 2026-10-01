@@ -11,29 +11,34 @@ use Throwable;
 
 class HttpFbrGateway implements FbrGateway
 {
-    public function submit(array $payload, string $idempotencyKey): FbrSubmissionResult
+    public function submit(array $payload, string $idempotencyKey, FbrSubmissionContext $context): FbrSubmissionResult
     {
-        $endpoint = config('services.fbr.endpoint');
-        $token = config('services.fbr.token');
-        if (! is_string($endpoint) || $endpoint === '' || ! is_string($token) || $token === '') {
+        if (parse_url($context->endpoint, PHP_URL_SCHEME) !== 'https' || $context->credential === '') {
             throw new FbrUnavailableException('FBR submission is not configured for this environment.');
         }
         try {
-            $response = Http::acceptJson()->withToken($token)->timeout((int) config('services.fbr.timeout', 15))->withHeaders(['Idempotency-Key' => $idempotencyKey])->post($endpoint, $payload);
-        } catch (Throwable $exception) {
-            throw new FbrUnavailableException('FBR is currently unavailable. The submission can be retried safely.', previous: $exception);
+            $response = Http::acceptJson()
+                ->withToken($context->credential)
+                ->connectTimeout((int) config('services.fbr.connect_timeout', 5))
+                ->timeout((int) config('services.fbr.timeout', 15))
+                ->withoutRedirecting()
+                ->withHeaders(['Idempotency-Key' => $idempotencyKey])
+                ->post($context->endpoint, $payload);
+        } catch (Throwable) {
+            throw new FbrUnavailableException('FBR is currently unavailable. The submission can be retried safely.');
         }
         $decodedBody = $response->json();
         $body = is_array($decodedBody) ? $decodedBody : [];
         $metadata = $body !== [] ? Arr::only($body, ['status', 'code', 'message', 'errors', 'timestamp', 'invoiceNumber', 'referenceNumber']) : ['status_code' => $response->status()];
-        if ($response->serverError()) {
+        if ($response->serverError() || $response->redirect()) {
             throw new FbrUnavailableException('FBR is currently unavailable. The submission can be retried safely.');
         }
         if ($response->failed()) {
-            return new FbrSubmissionResult(FbrSubmissionStatus::Rejected, null, $metadata, (string) ($metadata['message'] ?? 'FBR rejected the invoice.'));
+            return new FbrSubmissionResult(FbrSubmissionStatus::Rejected, null, $metadata, is_string($metadata['message'] ?? null) ? $metadata['message'] : 'FBR rejected the invoice.');
         }
         $reference = $body['invoiceNumber'] ?? $body['referenceNumber'] ?? null;
-        $status = ($body['status'] ?? null) === 'accepted' || $reference !== null ? FbrSubmissionStatus::Accepted : FbrSubmissionStatus::Submitted;
+        $reference = is_string($reference) && trim($reference) !== '' ? $reference : null;
+        $status = $reference !== null ? FbrSubmissionStatus::Accepted : FbrSubmissionStatus::Submitted;
 
         return new FbrSubmissionResult($status, is_string($reference) ? $reference : null, $metadata);
     }
