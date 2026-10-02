@@ -6,11 +6,18 @@ use App\Contracts\OutboundEmailGateway;
 use App\Models\EmailProviderConnection;
 use App\Models\EmailSendingIdentity;
 use Illuminate\Foundation\Testing\RefreshDatabase;
+use Tests\MariaDbCertification;
 use Tests\TestCase;
 
 class OutreachProviderTemplateApiTest extends TestCase
 {
     use RefreshDatabase;
+
+    protected function setUp(): void
+    {
+        parent::setUp();
+        MariaDbCertification::protectExternalProviders($this->app);
+    }
 
     public function test_provider_secrets_are_encrypted_and_never_returned_by_api(): void
     {

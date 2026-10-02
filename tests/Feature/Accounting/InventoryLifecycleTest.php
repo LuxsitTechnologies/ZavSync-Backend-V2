@@ -74,7 +74,7 @@ class InventoryLifecycleTest extends TestCase
         $this->assertCount(2, $transfer->movements);
         $this->assertNull($transfer->journal_id);
         $this->assertSame(20000, $transfer->movements->sum('movement_value'));
-        $this->assertSame(10000, InventoryLayer::query()->where('warehouse_id', $destination->id)->sum('remaining_value'));
+        $this->assertSame(10000, (int) InventoryLayer::query()->where('warehouse_id', $destination->id)->sum('remaining_value'));
 
         try {
             $service->transfer($context['company']->id, $context['user'], [
@@ -103,8 +103,8 @@ class InventoryLifecycleTest extends TestCase
             'direction' => 'negative',
         ], 'exact-issue');
         $this->assertSame(3500, $exact->movements->sum('movement_value'));
-        $this->assertSame(0, InventoryLayer::query()->where('item_id', $context['item']->id)->sum('remaining_quantity_milli'));
-        $this->assertSame(0, InventoryLayer::query()->where('item_id', $context['item']->id)->sum('remaining_value'));
+        $this->assertSame(0, (int) InventoryLayer::query()->where('item_id', $context['item']->id)->sum('remaining_quantity_milli'));
+        $this->assertSame(0, (int) InventoryLayer::query()->where('item_id', $context['item']->id)->sum('remaining_value'));
 
         try {
             $service->transfer($context['company']->id, $context['user'], [
@@ -135,7 +135,7 @@ class InventoryLifecycleTest extends TestCase
             $this->fail('A transfer in a locked period must be rejected.');
         } catch (ValidationException) {
             $this->assertDatabaseMissing('inventory_transactions', ['idempotency_key' => 'locked-transfer']);
-            $this->assertSame(2000, InventoryLayer::query()->where('item_id', $context['item']->id)->sum('remaining_quantity_milli'));
+            $this->assertSame(2000, (int) InventoryLayer::query()->where('item_id', $context['item']->id)->sum('remaining_quantity_milli'));
         }
     }
 
@@ -180,8 +180,8 @@ class InventoryLifecycleTest extends TestCase
         $this->assertSame($receipt->id, $retry->id);
         $this->assertSame($context['warehouse']->id, $receipt->warehouse_id);
         $this->assertSame(1, InventoryMovement::query()->where('source_type', 'purchase_receipt')->where('source_id', $receipt->id)->count());
-        $this->assertSame(10000, InventoryLayer::query()->where('item_id', $context['item']->id)->sum('remaining_quantity_milli'));
-        $this->assertSame(9000, InventoryLayer::query()->where('item_id', $context['item']->id)->sum('remaining_value'));
+        $this->assertSame(10000, (int) InventoryLayer::query()->where('item_id', $context['item']->id)->sum('remaining_quantity_milli'));
+        $this->assertSame(9000, (int) InventoryLayer::query()->where('item_id', $context['item']->id)->sum('remaining_value'));
         $this->getJson("/api/v1/purchases/receipts/{$receipt->id}", ['X-Company-Id' => $context['company']->id])
             ->assertOk()
             ->assertJsonPath('warehouse_id', $context['warehouse']->id)
@@ -203,7 +203,7 @@ class InventoryLifecycleTest extends TestCase
         $this->assertSame(1, InventoryTransaction::query()->where('source_type', 'invoice')->where('source_id', $invoice->id)->count());
         $this->assertNotNull($posted->journal_id);
         $this->assertNotNull($issue->journal_id);
-        $this->assertSame(3000, $issue->movements()->sum('movement_value'));
+        $this->assertSame(3000, (int) $issue->movements()->sum('movement_value'));
         $this->assertSame(2, Journal::query()->whereIn('id', [$posted->journal_id, $issue->journal_id])->count());
 
         $returnData = ['warehouse_id' => $context['warehouse']->id, 'transaction_date' => '2026-09-16', 'reason' => 'Customer return', 'lines' => [['source_line_id' => $line->id, 'quantity_milli' => 2000]]];
@@ -212,7 +212,7 @@ class InventoryLifecycleTest extends TestCase
         $this->assertSame($return->id, $retry->id);
         $this->assertSame(1000, $return->movements->sum('movement_value'));
         $this->assertNotNull($return->journal_id);
-        $this->assertSame(6000, InventoryLayer::query()->where('item_id', $context['item']->id)->sum('remaining_quantity_milli'));
+        $this->assertSame(6000, (int) InventoryLayer::query()->where('item_id', $context['item']->id)->sum('remaining_quantity_milli'));
 
         $this->expectException(ValidationException::class);
         $inventory->customerReturn($context['company']->id, $context['user'], $invoice, [...$returnData, 'lines' => [['source_line_id' => $line->id, 'quantity_milli' => 5000]]], 'customer-return-over');
@@ -252,7 +252,7 @@ class InventoryLifecycleTest extends TestCase
         $this->assertSame($return->id, $retry->id);
         $this->assertNotNull($return->journal_id);
         $this->assertSame(2000, $return->movements->sum('quantity_out_milli'));
-        $this->assertSame(8000, InventoryLayer::query()->where('item_id', $context['item']->id)->sum('remaining_quantity_milli'));
+        $this->assertSame(8000, (int) InventoryLayer::query()->where('item_id', $context['item']->id)->sum('remaining_quantity_milli'));
         $this->assertSame(1, InventoryTransaction::query()->where('idempotency_key', 'supplier-return')->count());
 
         try {
@@ -325,7 +325,7 @@ class InventoryLifecycleTest extends TestCase
         $this->assertSame(10000, $lines->where('account_id', $context['accounts']['inventory_asset']->id)->sum('debit'));
         $this->assertSame(2000, $lines->where('account_id', $context['accounts']['inventory_adjustment']->id)->sum('debit'));
         $this->assertSame(12000, $lines->where('account_id', $context['accounts']['accounts_payable']->id)->sum('credit'));
-        $this->assertSame(10000, InventoryLayer::query()->where('item_id', $context['item']->id)->sum('remaining_value'));
+        $this->assertSame(10000, (int) InventoryLayer::query()->where('item_id', $context['item']->id)->sum('remaining_value'));
         $this->assertSame(0, app(InventoryReportingService::class)->reconciliation($context['company']->id, [])['difference']);
     }
 

@@ -2,10 +2,14 @@
 
 namespace Tests;
 
+use App\Models\EmailProviderConnection;
+use App\Models\OutreachMessage;
+use App\Services\Outreach\ProviderSendResult;
 use App\Services\Outreach\SmtpEmailGateway;
 use Illuminate\Contracts\Console\Kernel;
 use Illuminate\Foundation\Application;
 use Illuminate\Foundation\Bootstrap\LoadConfiguration;
+use Illuminate\Mail\MailManager;
 use Illuminate\Support\Facades\Http;
 use RuntimeException;
 
@@ -111,9 +115,25 @@ final class MariaDbCertification
         } catch (\Throwable) {
             throw new RuntimeException('Certification server assertion failed; inspect the disposable connection privately.');
         }
+        self::protectExternalProviders($app);
+    }
+
+    public static function protectExternalProviders(Application $app): void
+    {
         Http::preventStrayRequests();
-        $app->bind(SmtpEmailGateway::class, function (): never {
-            throw new RuntimeException('Real SMTP is disabled during certification; bind a test gateway.');
+        $app->bind(SmtpEmailGateway::class, function (Application $app): SmtpEmailGateway {
+            return new class($app->make(MailManager::class)) extends SmtpEmailGateway
+            {
+                public function verify(EmailProviderConnection $connection): array
+                {
+                    throw new RuntimeException('Real SMTP is disabled during certification; bind a test gateway.');
+                }
+
+                public function send(EmailProviderConnection $connection, OutreachMessage $message): ProviderSendResult
+                {
+                    throw new RuntimeException('Real SMTP is disabled during certification; bind a test gateway.');
+                }
+            };
         });
     }
 }

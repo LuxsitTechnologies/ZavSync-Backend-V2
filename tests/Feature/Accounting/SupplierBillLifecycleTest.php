@@ -33,8 +33,8 @@ class SupplierBillLifecycleTest extends TestCase
         $second = $this->postJson("/api/v1/accounting/payables/bills/$billId/post", [], ['X-Company-Id' => $context['company']->id])->assertOk();
         $this->assertSame($first->json('journal_id'), $second->json('journal_id'));
         $bill = SupplierBill::query()->findOrFail($billId);
-        $this->assertSame(118000, $bill->journal->lines()->sum('debit'));
-        $this->assertSame(118000, $bill->journal->lines()->sum('credit'));
+        $this->assertSame(118000, (int) $bill->journal->lines()->sum('debit'));
+        $this->assertSame(118000, (int) $bill->journal->lines()->sum('credit'));
         $this->assertDatabaseHas('journal_lines', ['account_id' => $context['accounts']['accounts_payable']->id, 'credit' => 113000]);
         $this->assertDatabaseHas('journal_lines', ['account_id' => $context['accounts']['purchase_tax_recoverable']->id, 'debit' => 18000]);
         $this->assertDatabaseHas('journal_lines', ['account_id' => $context['accounts']['withholding_tax_payable']->id, 'credit' => 5000]);

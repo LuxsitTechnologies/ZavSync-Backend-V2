@@ -49,8 +49,8 @@ class CrmReportController extends Controller
         $this->authorize($request);
         $companyId = $this->companyId($request);
         $totals = CrmDeal::query()->where('company_id', $companyId)->selectRaw('status, COUNT(*) AS count, COALESCE(SUM(amount), 0) AS value, COALESCE(SUM(amount * probability_bps), 0) AS weighted')->groupBy('status')->get()->map(fn ($row): array => ['status' => $row->status, 'count' => (int) $row->count, 'value' => (int) $row->value, 'weightedValue' => intdiv((int) $row->weighted, 10000)]);
-        $owners = CrmDeal::query()->where('crm_deals.company_id', $companyId)->leftJoin('users', 'users.id', '=', 'crm_deals.owner_id')->selectRaw("owner_id, users.name AS owner, COUNT(*) AS deals, SUM(CASE WHEN status = 'WON' THEN 1 ELSE 0 END) AS won, COALESCE(SUM(CASE WHEN status = 'WON' THEN amount ELSE 0 END), 0) AS won_value")->groupBy('owner_id', 'users.name')->get();
-        $closeDistribution = CrmDeal::query()->where('company_id', $companyId)->whereNotNull('expected_close_date')->selectRaw('expected_close_date, COUNT(*) AS deals, COALESCE(SUM(amount), 0) AS value')->groupBy('expected_close_date')->orderBy('expected_close_date')->get();
+        $owners = CrmDeal::query()->where('crm_deals.company_id', $companyId)->leftJoin('users', 'users.id', '=', 'crm_deals.owner_id')->selectRaw("owner_id, users.name AS owner, COUNT(*) AS deals, SUM(CASE WHEN status = 'WON' THEN 1 ELSE 0 END) AS won, COALESCE(SUM(CASE WHEN status = 'WON' THEN amount ELSE 0 END), 0) AS won_value")->groupBy('owner_id', 'users.name')->withCasts(['deals' => 'integer', 'won' => 'integer', 'won_value' => 'integer'])->get();
+        $closeDistribution = CrmDeal::query()->where('company_id', $companyId)->whereNotNull('expected_close_date')->selectRaw('expected_close_date, COUNT(*) AS deals, COALESCE(SUM(amount), 0) AS value')->groupBy('expected_close_date')->orderBy('expected_close_date')->withCasts(['deals' => 'integer', 'value' => 'integer'])->get();
 
         return response()->json(['data' => ['byStage' => $this->dealsByStage($companyId), 'totals' => $totals, 'owners' => $owners, 'expectedCloseDistribution' => $closeDistribution, 'leadSourceConversion' => $this->leadSourceConversion($companyId)]]);
     }
@@ -59,8 +59,8 @@ class CrmReportController extends Controller
     {
         $this->authorize($request);
         $companyId = $this->companyId($request);
-        $byType = CrmActivity::query()->where('company_id', $companyId)->selectRaw('type, status, COUNT(*) AS count')->groupBy('type', 'status')->get();
-        $byOwner = CrmActivity::query()->where('crm_activities.company_id', $companyId)->leftJoin('users', 'users.id', '=', 'crm_activities.owner_id')->selectRaw("owner_id, users.name AS owner, COUNT(*) AS total, SUM(CASE WHEN status = 'COMPLETED' THEN 1 ELSE 0 END) AS completed, SUM(CASE WHEN status = 'PENDING' AND due_at < ? THEN 1 ELSE 0 END) AS overdue", [now()])->groupBy('owner_id', 'users.name')->get();
+        $byType = CrmActivity::query()->where('company_id', $companyId)->selectRaw('type, status, COUNT(*) AS count')->groupBy('type', 'status')->withCasts(['count' => 'integer'])->get();
+        $byOwner = CrmActivity::query()->where('crm_activities.company_id', $companyId)->leftJoin('users', 'users.id', '=', 'crm_activities.owner_id')->selectRaw("owner_id, users.name AS owner, COUNT(*) AS total, SUM(CASE WHEN status = 'COMPLETED' THEN 1 ELSE 0 END) AS completed, SUM(CASE WHEN status = 'PENDING' AND due_at < ? THEN 1 ELSE 0 END) AS overdue", [now()])->groupBy('owner_id', 'users.name')->withCasts(['total' => 'integer', 'completed' => 'integer', 'overdue' => 'integer'])->get();
         $recent = CrmActivity::query()->where('company_id', $companyId)->with(['activityable', 'owner', 'creator'])->latest()->limit(20)->get();
 
         return response()->json(['data' => ['byType' => $byType, 'byOwner' => $byOwner, 'recent' => CrmActivityResource::collection($recent)]]);
@@ -73,7 +73,7 @@ class CrmReportController extends Controller
 
     private function leadsBySource(string $companyId): mixed
     {
-        return CrmLead::query()->where('company_id', $companyId)->selectRaw("COALESCE(source, 'Unspecified') AS source, COUNT(*) AS leads, SUM(CASE WHEN status = 'CONVERTED' THEN 1 ELSE 0 END) AS converted")->groupBy('source')->orderByDesc('leads')->get();
+        return CrmLead::query()->where('company_id', $companyId)->selectRaw("COALESCE(source, 'Unspecified') AS source, COUNT(*) AS leads, SUM(CASE WHEN status = 'CONVERTED' THEN 1 ELSE 0 END) AS converted")->groupBy('source')->orderByDesc('leads')->withCasts(['leads' => 'integer', 'converted' => 'integer'])->get();
     }
 
     private function leadSourceConversion(string $companyId): mixed

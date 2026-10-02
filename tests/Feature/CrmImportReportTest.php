@@ -11,6 +11,8 @@ use App\Models\CrmLead;
 use App\Models\Invoice;
 use App\Models\Journal;
 use Illuminate\Foundation\Testing\RefreshDatabase;
+use Illuminate\Support\Facades\DB;
+use PDO;
 use Tests\TestCase;
 
 class CrmImportReportTest extends TestCase
@@ -85,6 +87,42 @@ class CrmImportReportTest extends TestCase
         $this->getJson('/api/v1/crm/dashboard', $headers)->assertSuccessful()->assertJsonPath('data.openDeals', 1)->assertJsonPath('data.pipelineValue', 1_000_01)->assertJsonPath('data.weightedPipelineValue', intdiv(1_000_01 * 3333, 10000))->assertJsonPath('data.wonDeals', 1)->assertJsonPath('data.overdueActivities', 1);
         $this->getJson('/api/v1/crm/reports/pipeline', $headers)->assertSuccessful()->assertJsonFragment(['status' => 'OPEN', 'count' => 1])->assertJsonCount(1, 'data.owners');
         $this->getJson('/api/v1/crm/reports/activities', $headers)->assertSuccessful()->assertJsonCount(1, 'data.byOwner');
+    }
+
+    public function test_report_aggregate_contracts_remain_integers_with_string_fetches(): void
+    {
+        $context = $this->stage9CrmContext();
+        $context['lead']->update(['source' => 'Portability fixture', 'status' => 'CONVERTED']);
+        CrmDeal::factory()->for($context['company'])->for($context['account'], 'account')->for($context['pipeline'], 'pipeline')->for($context['stages']['won'], 'stage')->create([
+            'owner_id' => $context['user']->id, 'amount' => 200001, 'probability_bps' => 10000,
+            'status' => 'WON', 'expected_close_date' => '2026-06-30', 'created_by' => $context['user']->id,
+        ]);
+        CrmActivity::factory()->for($context['company'])->for($context['lead'], 'activityable')->create([
+            'owner_id' => $context['user']->id, 'type' => 'TASK', 'due_at' => now()->subDay(), 'created_by' => $context['user']->id,
+        ]);
+        CrmActivity::factory()->completed()->for($context['company'])->for($context['lead'], 'activityable')->create([
+            'owner_id' => $context['user']->id, 'type' => 'TASK', 'created_by' => $context['user']->id,
+        ]);
+        $headers = $this->headers($context['company']->id);
+        $pdo = DB::connection()->getPdo();
+        $original = $pdo->getAttribute(PDO::ATTR_STRINGIFY_FETCHES);
+        $pdo->setAttribute(PDO::ATTR_STRINGIFY_FETCHES, true);
+
+        try {
+            $this->assertSame('200001', CrmDeal::query()->where('company_id', $context['company']->id)->sum('amount'));
+            $this->getJson('/api/v1/crm/dashboard', $headers)->assertSuccessful()
+                ->assertJsonPath('data.leadsBySource.0.leads', 1)->assertJsonPath('data.leadsBySource.0.converted', 1);
+            $this->getJson('/api/v1/crm/reports/pipeline', $headers)->assertSuccessful()
+                ->assertJsonPath('data.owners.0.deals', 1)->assertJsonPath('data.owners.0.won', 1)->assertJsonPath('data.owners.0.won_value', 200001)
+                ->assertJsonPath('data.expectedCloseDistribution.0.deals', 1)->assertJsonPath('data.expectedCloseDistribution.0.value', 200001);
+            $activities = $this->getJson('/api/v1/crm/reports/activities', $headers)->assertSuccessful()
+                ->assertJsonPath('data.byOwner.0.total', 2)->assertJsonPath('data.byOwner.0.completed', 1)->assertJsonPath('data.byOwner.0.overdue', 1);
+            foreach ($activities->json('data.byType') as $group) {
+                $this->assertSame(1, $group['count']);
+            }
+        } finally {
+            $pdo->setAttribute(PDO::ATTR_STRINGIFY_FETCHES, $original);
+        }
     }
 
     /** @return array<string, string> */

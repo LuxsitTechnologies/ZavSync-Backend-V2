@@ -59,7 +59,7 @@ class CrmActivityTagScoreTest extends TestCase
         $this->assertSame(80, $result['score']);
         $this->assertCount(2, $result['events']);
         $this->assertSame(80, $context['lead']->fresh()->score);
-        $this->assertSame(80, CrmScoreEvent::query()->where('scoreable_id', $context['lead']->id)->sum('points'));
+        $this->assertSame(80, (int) CrmScoreEvent::query()->where('scoreable_id', $context['lead']->id)->sum('points'));
         $this->assertSame(0, Journal::count());
 
         $this->putJson('/api/v1/crm/score-rules/'.$ruleOne['id'], $this->scoreRule(['name' => 'Email present', 'field' => 'email', 'operator' => 'NOT_EMPTY', 'points' => 30, 'position' => 1]), $headers)->assertSuccessful();

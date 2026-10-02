@@ -117,7 +117,7 @@ class AiProviderUsageTest extends TestCase
 
         $this->assertSame([[250_000, -500_000]], $result->vectors);
         $this->assertSame(3, $result->costMinor);
-        $this->assertContainsOnly('int', $result->vectors[0]);
+        $this->assertContainsOnlyInt($result->vectors[0]);
     }
 
     public function test_openai_provider_failure_does_not_expose_the_remote_error_body(): void

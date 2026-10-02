@@ -10,12 +10,14 @@ use Illuminate\Database\Schema\Blueprint;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Log\Logger;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Exceptions;
 use Illuminate\Support\Facades\File;
 use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Facades\Schema;
 use Monolog\Handler\TestHandler;
 use Monolog\Logger as MonologLogger;
+use Tests\MariaDbCertification;
 use Tests\TestCase;
 
 class EncryptedStorageCompatibilityTest extends TestCase
@@ -91,6 +93,8 @@ class EncryptedStorageCompatibilityTest extends TestCase
 
     public function test_provider_creation_keeps_secrets_out_of_api_audit_and_application_logs(): void
     {
+        MariaDbCertification::protectExternalProviders($this->app);
+        Exceptions::fake();
         $context = $this->stage11OutreachContext();
         Http::preventStrayRequests();
         $handler = new TestHandler;
@@ -99,7 +103,9 @@ class EncryptedStorageCompatibilityTest extends TestCase
             'name' => 'Storage security fixture', 'provider_type' => 'SMTP',
             'configuration' => ['host' => 'smtp.example.test', 'port' => 587, 'encryption' => 'tls', 'username' => 'private-marker@example.test'],
             'credentials' => ['password' => 'fixture-password-marker'],
-        ], ['X-Company-Id' => $context['company']->id])->assertCreated();
+        ], ['X-Company-Id' => $context['company']->id]);
+        Exceptions::assertNothingReported();
+        $response->assertCreated();
         $audit = DB::table('audit_logs')->where('entity_id', $response->json('id'))->get();
         $this->assertNotEmpty($audit);
         $logs = array_map(fn ($record): array => $record->toArray(), $handler->getRecords());

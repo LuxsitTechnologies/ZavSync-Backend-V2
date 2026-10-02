@@ -23,11 +23,18 @@ use App\Models\PlatformModule;
 use App\Models\SupplierPayment;
 use App\Services\Outreach\SequenceService;
 use Illuminate\Foundation\Testing\RefreshDatabase;
+use Tests\MariaDbCertification;
 use Tests\TestCase;
 
 class OutreachSecurityBoundaryFactoryTest extends TestCase
 {
     use RefreshDatabase;
+
+    protected function setUp(): void
+    {
+        parent::setUp();
+        MariaDbCertification::protectExternalProviders($this->app);
+    }
 
     public function test_all_stage_eleven_factories_create_valid_records(): void
     {

@@ -23,7 +23,7 @@ class SupplierPaymentTest extends TestCase
         $this->assertDatabaseCount('supplier_payments', 2);
         $this->assertDatabaseCount('supplier_payment_allocations', 2);
         $this->assertDatabaseCount('journals', 3);
-        $this->assertSame(40000, $bill->fresh()->allocations()->firstOrFail()->payment->journal->lines()->sum('debit'));
+        $this->assertSame(40000, (int) $bill->fresh()->allocations()->firstOrFail()->payment->journal->lines()->sum('debit'));
     }
 
     public function test_payment_is_idempotent_and_overpayment_is_rejected(): void

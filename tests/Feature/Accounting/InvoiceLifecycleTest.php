@@ -49,8 +49,8 @@ class InvoiceLifecycleTest extends TestCase
 
         $response->assertOk()->assertJsonPath('accounting_status', 'unpaid')->assertJsonPath('journal_id', fn ($value) => is_string($value));
         $invoice = Invoice::query()->findOrFail($invoiceId);
-        $this->assertSame(16520, $invoice->journal->lines()->sum('debit'));
-        $this->assertSame(16520, $invoice->journal->lines()->sum('credit'));
+        $this->assertSame(16520, (int) $invoice->journal->lines()->sum('debit'));
+        $this->assertSame(16520, (int) $invoice->journal->lines()->sum('credit'));
         $this->assertDatabaseHas('journal_lines', ['journal_id' => $invoice->journal_id, 'account_id' => $context['accounts']['accounts_receivable']->id, 'debit' => 16520, 'credit' => 0]);
         $this->assertDatabaseHas('journal_lines', ['journal_id' => $invoice->journal_id, 'account_id' => $context['accounts']['sales_revenue']->id, 'debit' => 0, 'credit' => 14000]);
         $this->assertDatabaseHas('journal_lines', ['journal_id' => $invoice->journal_id, 'account_id' => $context['accounts']['sales_tax_payable']->id, 'debit' => 0, 'credit' => 2520]);

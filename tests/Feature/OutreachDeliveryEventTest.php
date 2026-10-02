@@ -22,11 +22,18 @@ use App\Services\Outreach\SequenceService;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Facades\Queue;
 use RuntimeException;
+use Tests\MariaDbCertification;
 use Tests\TestCase;
 
 class OutreachDeliveryEventTest extends TestCase
 {
     use RefreshDatabase;
+
+    protected function setUp(): void
+    {
+        parent::setUp();
+        MariaDbCertification::protectExternalProviders($this->app);
+    }
 
     public function test_due_message_is_queued_and_delivery_is_idempotent_with_crm_activity(): void
     {
