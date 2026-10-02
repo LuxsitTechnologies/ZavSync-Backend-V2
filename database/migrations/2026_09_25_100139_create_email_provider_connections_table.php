@@ -17,7 +17,7 @@ return new class extends Migration
             $table->string('name');
             $table->string('provider_type', 30);
             $table->string('status', 30)->default('DISCONNECTED');
-            $table->json('configuration')->nullable();
+            $table->longText('configuration')->nullable();
             $table->text('credentials')->nullable();
             $table->text('access_token')->nullable();
             $table->text('refresh_token')->nullable();
