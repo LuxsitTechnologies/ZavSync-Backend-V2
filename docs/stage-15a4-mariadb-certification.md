@@ -17,6 +17,32 @@ one user and one company. Codex did not connect to MariaDB or Docker.
 
 ## Harness and safety
 
+### Stage 15A.4.1 bootstrap correction
+
+The first manual preflight exposed a harness bug before tests: routesAreCached()
+requires the container's files binding, which is registered during provider
+registration, not by bootstrap/app.php construction. The original early call was
+invalid. This was a harness failure, not MariaDB test execution.
+
+Preflight now checks file_exists() on Laravel's resolved config/route cache paths
+before kernel bootstrap, with no filesystem-service dependency and without loading
+either cache file. A supported beforeBootstrapping(LoadConfiguration) hook repeats
+the check after environment loading, catching cache-path overrides from dotenv
+before cached configuration or routes can be consumed. The normal console kernel
+then completes bootstrap. Framework cache-state methods and the database guard
+run only after services exist. Safety checks are retained, not suppressed.
+
+Regression coverage boots the real application in a child PHP process and mocks
+only its database connection (getPdo forbidden). It verifies filesystem binding
+availability and the exact server assertion query without contacting MariaDB.
+Separate subprocess tests reject unsafe process values and existing cache files.
+Normal SQLite application creation remains unchanged.
+
+Stage 15A.4.1 local verification: harness 29 tests / 58 assertions; Stage 15
+SQLite 66 / 466; complete SQLite regression 540 / 3,134, all PASS. Pint, changed
+PHP syntax, Composer strict validation and diff/whitespace review PASS. No
+MariaDB, Docker or production access; manual certification remains pending.
+
 Normal phpunit.xml supplies sqlite and :memory: defaults. Those env entries do not
 use force, so process environment can override them, but relying on that alone is
 not a safe destructive certification workflow. There is no CreatesApplication

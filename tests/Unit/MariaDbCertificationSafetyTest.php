@@ -73,4 +73,76 @@ class MariaDbCertificationSafetyTest extends TestCase
         $this->assertSame(2, $process->getExitCode());
         $this->assertStringContainsString('reset consent', $process->getErrorOutput());
     }
+
+    /** @return array<string, string> */
+    private function certificationEnvironment(): array
+    {
+        return ['APP_ENV' => 'testing', 'DB_CONNECTION' => 'mysql', 'DB_HOST' => '127.0.0.1',
+            'DB_PORT' => '33079', 'DB_DATABASE' => 'zavsync_v2_stage15_cert', 'DB_USERNAME' => 'zavsync_stage15',
+            'DB_PASSWORD' => 'synthetic-never-connected', 'DB_URL' => '', 'DB_SOCKET' => '',
+            'MARIADB_CERTIFICATION_RESET' => 'zavsync_v2_stage15_cert', 'TEST_TOKEN' => '',
+            'LARAVEL_PARALLEL_TESTING' => '', 'CACHE_STORE' => 'array', 'SESSION_DRIVER' => 'array',
+            'QUEUE_CONNECTION' => 'sync', 'MAIL_MAILER' => 'array'];
+    }
+
+    #[DataProvider('unsafeProcessValues')]
+    public function test_preflight_rejects_unsafe_process_values_before_bootstrap(string $key, string $value): void
+    {
+        $process = new Process([PHP_BINARY, 'tests/mariadb.php', 'preflight'], dirname(__DIR__, 2),
+            [$key => $value] + $this->certificationEnvironment());
+        $process->run();
+        $this->assertSame(2, $process->getExitCode());
+        $this->assertStringContainsString('Certification', $process->getErrorOutput());
+        $this->assertStringNotContainsString('synthetic-never-connected', $process->getErrorOutput());
+    }
+
+    public static function unsafeProcessValues(): array
+    {
+        return [['DB_CONNECTION', 'sqlite'], ['DB_DATABASE', ':memory:'], ['DB_DATABASE', 'wrong'],
+            ['DB_HOST', 'remote.invalid'], ['DB_PORT', '3306'], ['DB_USERNAME', 'root'],
+            ['MARIADB_CERTIFICATION_RESET', 'wrong'], ['DB_URL', 'mysql://override.invalid'],
+            ['DB_SOCKET', '/tmp/mysql.sock']];
+    }
+
+    public function test_supported_bootstrap_registers_files_and_reaches_only_mocked_connectivity(): void
+    {
+        $code = <<<'PHP'
+require 'vendor/autoload.php';
+$app = Tests\MariaDbCertification::bootApplication();
+if (! $app->bound('files') || ! $app->hasBeenBootstrapped()) {
+    throw new RuntimeException('Incomplete application bootstrap.');
+}
+$connection = Mockery::mock(Illuminate\Database\Connection::class)->makePartial();
+$connection->shouldReceive('getPdo')->never();
+$connection->shouldReceive('getConfig')->withNoArgs()->once()->andReturn($app['config']->get('database.connections.mysql'));
+$connection->shouldReceive('getConfig')->with('name')->andReturn('mysql');
+$connection->shouldReceive('selectOne')->once()->with('SELECT DATABASE() AS database_name, VERSION() AS server_version')
+    ->andReturn((object) ['database_name' => 'zavsync_v2_stage15_cert', 'server_version' => '11.8.9-MariaDB-ubu2404']);
+$connection->shouldReceive('getDriverName')->once()->andReturn('mysql');
+$app['db']->extend('mysql', fn () => $connection);
+Tests\MariaDbCertification::guard($app);
+Mockery::close();
+echo 'BOOTSTRAP_AND_MOCKED_CONNECTIVITY_PASS';
+PHP;
+        $process = new Process([PHP_BINARY, '-r', $code], dirname(__DIR__, 2), $this->certificationEnvironment());
+        $process->run();
+        $this->assertSame(0, $process->getExitCode(), $process->getErrorOutput().$process->getOutput());
+        $this->assertSame('BOOTSTRAP_AND_MOCKED_CONNECTIVITY_PASS', $process->getOutput());
+    }
+
+    #[DataProvider('cacheVariables')]
+    public function test_preflight_rejects_cache_files_without_executing_them(string $key): void
+    {
+        $process = new Process([PHP_BINARY, 'tests/mariadb.php', 'preflight'], dirname(__DIR__, 2),
+            [$key => __FILE__] + $this->certificationEnvironment());
+        $process->run();
+        $this->assertNotSame(0, $process->getExitCode());
+        $this->assertStringContainsString('clear generated configuration/route caches', $process->getErrorOutput().$process->getOutput());
+        $this->assertStringNotContainsString('Target class [files]', $process->getErrorOutput().$process->getOutput());
+    }
+
+    public static function cacheVariables(): array
+    {
+        return [['APP_CONFIG_CACHE'], ['APP_ROUTES_CACHE']];
+    }
 }

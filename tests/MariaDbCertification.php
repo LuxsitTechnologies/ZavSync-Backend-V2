@@ -3,12 +3,36 @@
 namespace Tests;
 
 use App\Services\Outreach\SmtpEmailGateway;
+use Illuminate\Contracts\Console\Kernel;
 use Illuminate\Foundation\Application;
+use Illuminate\Foundation\Bootstrap\LoadConfiguration;
 use Illuminate\Support\Facades\Http;
 use RuntimeException;
 
 final class MariaDbCertification
 {
+    public static function assertCacheFilesAbsent(Application $app): void
+    {
+        foreach ([$app->getCachedConfigPath(), $app->getCachedRoutesPath()] as $path) {
+            if (file_exists($path)) {
+                throw new RuntimeException('Certification refused: clear generated configuration/route caches in a separate step.');
+            }
+        }
+    }
+
+    public static function bootApplication(): Application
+    {
+        self::assertProcess();
+        $app = require dirname(__DIR__).'/bootstrap/app.php';
+        self::assertCacheFilesAbsent($app);
+        $app->beforeBootstrapping(LoadConfiguration::class, function (Application $app): void {
+            self::assertCacheFilesAbsent($app);
+        });
+        $app->make(Kernel::class)->bootstrap();
+
+        return $app;
+    }
+
     public static function configuration(string $root): \DOMDocument
     {
         $xml = new \DOMDocument;
@@ -75,7 +99,7 @@ final class MariaDbCertification
     public static function guard(Application $app): void
     {
         self::assertProcess();
-        if ($app->configurationIsCached() || ! $app->environment('testing')
+        if ($app->configurationIsCached() || $app->routesAreCached() || ! $app->environment('testing')
             || $app['config']->get('database.default') !== 'mysql') {
             throw new RuntimeException('Certification refused: cached configuration or incorrect test environment.');
         }
