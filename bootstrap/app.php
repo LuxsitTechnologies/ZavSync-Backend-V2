@@ -16,6 +16,11 @@ return Application::configure(basePath: dirname(__DIR__))
     )
     ->withMiddleware(function (Middleware $middleware): void {
         $middleware->statefulApi();
+        $identifiers = ['source_system', 'source_id', 'source_company_id', 'legacy_source_system', 'legacy_source_id',
+            'legacy_original_company_id', 'idempotency_key', 'creation_idempotency_key', 'origin_idempotency_key',
+            'posting_idempotency_key', 'conversion_idempotency_key', 'customer_handoff_key', 'invoice_number',
+            'supplier_invoice_number', 'fbr_invoice_number', 'fbr_reference_number', 'reference_number'];
+        $middleware->trimStrings(except: [...$identifiers, ...array_map(fn (string $field): string => '*.'.$field, $identifiers)]);
         $middleware->append(AddRequestContext::class);
         $middleware->alias([
             'company' => ResolveCompany::class,

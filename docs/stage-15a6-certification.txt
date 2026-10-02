@@ -1,0 +1,215 @@
+STAGE 15A.6 — IDENTIFIER AND LOCKING AUDIT / MANUAL CERTIFICATION
+
+Status: local preparation only. MariaDB concurrency has NOT been executed by Codex.
+Baseline: 5bc27fa4032161b9994f8c8d6bdc312ad93dcaff, main.
+Do not use these commands against V1, production, or any other database.
+
+IDENTIFIER POLICY AND AUDIT
+
+C = migration-declared inherited collation, with configured default utf8mb4_unicode_ci.
+Actual MariaDB column collations were NOT inspected from Codex. The manual
+TechnicalIdentifierTest asserts every corrected column's runtime collation.
+SQLite uses its existing BINARY comparisons and receives no collation rewrite.
+
+E = exact, case-sensitive, accent-sensitive, normalization-sensitive, trailing-space-sensitive
+identity. Correction: keep VARCHAR length/nullability and existing indexes, apply
+utf8mb4_nopad_bin to this column only. No database/table-wide collation change.
+All rows below require E; PHP and SQL identity must agree.
+
+Table.column | existing type | declared collation | index use | PHP/application behavior | correction
+journals.idempotency_key | VARCHAR(100) NULL | inherited C | UNIQUE(company_id,key) | SQL equality; key passed without case-folding | E
+invoices.invoice_number | VARCHAR(40) NOT NULL | inherited C | UNIQUE(company_id,invoice_number) | SQL equality; strict reconciliation identity; generated/native or preserved/external | E
+invoices.fbr_reference_number | VARCHAR(255) NULL | inherited C | none on this column | provider/evidence value preserved; SQL equality; no case-folding | E
+invoices.creation_idempotency_key | VARCHAR(100) NULL | inherited C | UNIQUE(company_id,key) | SQL equality; key passed without case-folding | E
+fbr_submission_attempts.idempotency_key | VARCHAR(100) NOT NULL | inherited C | UNIQUE(invoice_id,key) | SQL equality; key passed without case-folding | E
+fbr_submission_attempts.reference_number | VARCHAR(255) NULL | inherited C | none on this column | provider/evidence value preserved; SQL equality; no case-folding | E
+customer_payments.idempotency_key | VARCHAR(100) NOT NULL | inherited C | UNIQUE(company_id,key) | SQL equality; key passed without case-folding | E
+purchase_orders.creation_idempotency_key | VARCHAR(100) NOT NULL | inherited C | UNIQUE(company_id,key) | SQL equality; key passed without case-folding | E
+purchase_receipts.idempotency_key | VARCHAR(100) NOT NULL | inherited C | UNIQUE(company_id,key) | SQL equality; key passed without case-folding | E
+supplier_bills.supplier_invoice_number | VARCHAR(100) NOT NULL | inherited C | UNIQUE(company_id,supplier_id,number) | SQL equality; strict reconciliation identity; generated/native or preserved/external | E
+supplier_bills.creation_idempotency_key | VARCHAR(100) NOT NULL | inherited C | UNIQUE(company_id,key) | SQL equality; key passed without case-folding | E
+supplier_payments.idempotency_key | VARCHAR(100) NOT NULL | inherited C | UNIQUE(company_id,key) | SQL equality; key passed without case-folding | E
+inventory_transactions.idempotency_key | VARCHAR(120) NOT NULL | inherited C | UNIQUE(company_id,key) | SQL equality; key passed without case-folding | E
+bank_statement_imports.idempotency_key | VARCHAR(120) NOT NULL | inherited C | UNIQUE(company_id,key) | SQL equality; key passed without case-folding | E
+bank_transactions.origin_idempotency_key | VARCHAR(120) NULL | inherited C | UNIQUE(company_id,key) | SQL equality; key passed without case-folding | E
+internal_transfers.idempotency_key | VARCHAR(120) NOT NULL | inherited C | UNIQUE(company_id,key) | SQL equality; key passed without case-folding | E
+gateway_settlements.idempotency_key | VARCHAR(120) NOT NULL | inherited C | UNIQUE(company_id,key) | SQL equality; key passed without case-folding | E
+bank_reconciliations.idempotency_key | VARCHAR(120) NOT NULL | inherited C | UNIQUE(company_id,key) | SQL equality; key passed without case-folding | E
+bank_reconciliation_matches.idempotency_key | VARCHAR(120) NOT NULL | inherited C | UNIQUE(company_id,key) | SQL equality; key passed without case-folding | E
+accounting_close_records.idempotency_key | VARCHAR(255) NULL | inherited C | UNIQUE(company_id,key) | SQL equality; key passed without case-folding | E
+payroll_batches.posting_idempotency_key | VARCHAR(120) NULL | inherited C | UNIQUE(company_id,key) | SQL equality; key passed without case-folding | E
+payroll_payments.idempotency_key | VARCHAR(120) NOT NULL | inherited C | UNIQUE(company_id,key) | SQL equality; key passed without case-folding | E
+payroll_liability_settlements.idempotency_key | VARCHAR(120) NOT NULL | inherited C | UNIQUE(company_id,key) | SQL equality; key passed without case-folding | E
+crm_leads.conversion_idempotency_key | VARCHAR(100) NULL | inherited C | UNIQUE(company_id,key) | SQL equality; key passed without case-folding | E
+crm_imports.idempotency_key | VARCHAR(100) NULL | inherited C | UNIQUE(company_id,key) | SQL equality; key passed without case-folding | E
+crm_accounts.customer_handoff_key | VARCHAR(100) NULL | inherited C | UNIQUE(company_id,key) | SQL equality; key passed without case-folding | E
+crm_deals.customer_handoff_key | VARCHAR(100) NULL | inherited C | UNIQUE(company_id,key) | SQL equality; key passed without case-folding | E
+outreach_enrollments.idempotency_key | VARCHAR(255) NOT NULL | inherited C | UNIQUE(company_id,key) | SQL equality; key passed without case-folding | E
+outreach_send_attempts.idempotency_key | VARCHAR(255) NOT NULL | inherited C | global UNIQUE(key) | SQL equality; key passed without case-folding | E
+knowledge_ingestion_runs.idempotency_key | VARCHAR(120) NOT NULL | inherited C | UNIQUE(company_id,key) | SQL equality; key passed without case-folding | E
+ai_messages.idempotency_key | VARCHAR(120) NULL | inherited C | UNIQUE(company_id,key) | SQL equality; key passed without case-folding | E
+ai_action_proposals.idempotency_key | VARCHAR(120) NOT NULL | inherited C | UNIQUE(company_id,key) | SQL equality; key passed without case-folding | E
+ai_action_executions.idempotency_key | VARCHAR(120) NOT NULL | inherited C | UNIQUE(company_id,key) | SQL equality; key passed without case-folding | E
+intelligence_scenarios.idempotency_key | VARCHAR(120) NOT NULL | inherited C | UNIQUE(company_id,key) | SQL equality; key passed without case-folding | E
+scheduled_intelligence_runs.idempotency_key | VARCHAR(120) NOT NULL | inherited C | UNIQUE(company_id,key) | SQL equality; key passed without case-folding | E
+legacy_import_runs.source_system | VARCHAR(60) NOT NULL | inherited C | UNIQUE(source_system,fingerprint,company_id) | SQL equality / strict string identity; source values preserved | E
+legacy_import_runs.source_company_id | VARCHAR(120) NOT NULL | inherited C | none on this column | SQL equality / strict string identity; source values preserved | E
+legacy_entity_maps.source_system | VARCHAR(60) NOT NULL | inherited C | source UNIQUE(company,system,type,id), global UNIQUE(system,type,id), target UNIQUE(system,type,target) | SQL equality / strict string identity; source values preserved | E
+legacy_entity_maps.source_id | VARCHAR(120) NOT NULL | inherited C | source UNIQUE(company,system,type,id), global UNIQUE(system,type,id) | SQL equality / strict string identity; source values preserved | E
+migration_exceptions.source_id | VARCHAR(120) NULL | inherited C | none on this column | SQL equality / strict string identity; source values preserved | E
+pakistan_fbr_invoices.legacy_source_system | VARCHAR(60) NULL | inherited C | UNIQUE(company_id,legacy_source_system,legacy_source_id) | SQL equality / strict string identity; source values preserved | E
+pakistan_fbr_invoices.legacy_source_id | VARCHAR(120) NULL | inherited C | UNIQUE(company_id,legacy_source_system,legacy_source_id) | SQL equality / strict string identity; source values preserved | E
+pakistan_fbr_invoices.legacy_original_company_id | VARCHAR(120) NULL | inherited C | none on this column | SQL equality; key passed without case-folding | E
+pakistan_fbr_invoices.invoice_number | VARCHAR(120) NOT NULL | inherited C | UNIQUE(company_id,invoice_number) | SQL equality; strict reconciliation identity; generated/native or preserved/external | E
+pakistan_fbr_invoices.fbr_reference_number | VARCHAR(255) NULL | inherited C | none on this column | provider/evidence value preserved; SQL equality; no case-folding | E
+pakistan_fbr_invoices.creation_idempotency_key | VARCHAR(100) NULL | inherited C | UNIQUE(company_id,key) | SQL equality; key passed without case-folding | E
+pakistan_fbr_invoice_lines.legacy_source_id | VARCHAR(120) NULL | inherited C | UNIQUE(invoice_id,legacy_source_id) | SQL equality / strict string identity; source values preserved | E
+pakistan_fbr_submission_attempts.idempotency_key | VARCHAR(100) NOT NULL | inherited C | UNIQUE(invoice_id,key) | SQL equality; key passed without case-folding | E
+pakistan_fbr_submission_attempts.reference_number | VARCHAR(255) NULL | inherited C | none on this column | provider/evidence value preserved; SQL equality; no case-folding | E
+legacy_fbr_evidence.source_system | VARCHAR(60) NOT NULL | inherited C | UNIQUE(company_id,source_system,source_id) | SQL equality / strict string identity; source values preserved | E
+legacy_fbr_evidence.source_id | VARCHAR(120) NOT NULL | inherited C | UNIQUE(company_id,source_system,source_id) | SQL equality / strict string identity; source values preserved | E
+legacy_fbr_evidence.fbr_reference_number | VARCHAR(255) NULL | inherited C | nonunique INDEX(company_id,reference) | provider/evidence value preserved; SQL equality; no case-folding | E
+
+Excluded after audit:
+- operational_priority_signals.source_id is an internal UUID-derived link, not a free-form
+  external import identifier. No new collation on internal UUID PK/FK/source/target links.
+- payload/creation/idempotency/source hashes are canonical generated hexadecimal digests.
+- names, descriptions, addresses, currencies, statuses and natural-language fields.
+- HS/UOM/rate/SRO/reference-catalog codes: no unapproved provider reference-data policy change.
+- no FBR reference UNIQUE index added. Duplicate historical references remain stored and flagged.
+- CRM customer_handoff_key is an idempotency key despite its different name; included.
+
+Exact-value corrections:
+- removed trimming of imported invoice numbers and historical FBR references;
+- reconciliation compares preserved references exactly (including the literal string "0");
+- dedicated FBR completion preserves nonblank provider references without trimming/truncating;
+  overlength references fail closed, retaining pending state for reconciliation rather than
+  fabricating a shortened identity;
+- request TrimStrings exceptions cover only technical identifier field names and their nested
+  equivalents. Human fields still trim. Empty/invalid inputs remain subject to validation.
+
+Migration safety:
+The migration checks for utf8mb4_nopad_bin before changes, preserves indexes, and leaves
+SQLite unchanged. Unsupported engines fail explicitly rather than silently using PAD SPACE.
+Downgrading to case-insensitive/PAD semantics can collapse newly valid identities; down()
+therefore refuses on MariaDB/MySQL. Use a separately reviewed forward migration.
+MariaDB DDL is not fully transactional: back up V2 and validate/recover partial DDL explicitly
+if an ALTER fails. Production migration is not performed here.
+Drain old workers before deploying generation fencing; old application binaries do not
+recognize the new ownership counters.
+
+Official collation reference:
+https://mariadb.com/docs/server/reference/data-types/string-data-types/character-sets/supported-character-sets-and-collations
+
+TRANSACTIONS / LOCK ORDER
+
+Native invoice creation:
+Transaction -> company FOR UPDATE -> idempotency/payload-hash check -> MAX(sequence)+1 ->
+invoice and lines. Company+number, company+sequence and company+creation-key uniqueness.
+Rollback removes allocation; no standalone counter is consumed. Distinct companies use
+different row locks. Existing draft deletion/numbering contract is unchanged.
+
+FBR draft creation:
+Transaction -> company FOR UPDATE -> creation-key/hash -> nonhistorical MAX(sequence) ->
+skip any historical number collision -> dedicated invoice/lines/audit.
+Independent tables, no accounting posting. Number/key/source unique constraints retained.
+
+Both submission lifecycles (independent):
+Preparation transaction -> invoice FOR UPDATE -> company-scoped attempt FOR UPDATE ->
+configuration/payload/key/lease checks -> bounded claim_generation increment.
+Provider call is outside the transaction. Completion/failure -> invoice -> attempt locks ->
+generation and pending-state checks before any mutation. Lease stays two minutes; provider
+idempotency keys retain accounting: and pkfbr: namespaces. Retries keep the original key.
+Generation exhaustion fails closed before provider invocation.
+Provider acceptance itself cannot be rolled back. Fencing protects local state, not external
+exactly-once delivery; real provider idempotency and reconciliation require staging evidence.
+
+Historical import:
+Start/resume transaction -> company -> run FOR UPDATE -> bounded execution_generation increment.
+Every mapping, pre-chunk exception ledger write, chunk (records/maps/evidence/progress),
+completion/reconciliation and failure transition rechecks ownership under company -> run.
+Explicit resume supersedes the old generation. Completed replay is read-only and does not
+increment. Already committed chunks survive a stale worker failure.
+Run identity remains system+fingerprint+company; source-company mapping retains global source
+and target uniqueness. Conflicting mappings return validation conflicts.
+Historical imports never resolve/call an FBR provider or native posting service.
+
+Deadlock policy:
+Existing service transactions use one attempt unless explicitly configured otherwise.
+No retry loops were added. Audit found consistent company->run and invoice->attempt order
+in changed paths. Submission configuration reads do not lock company, avoiding a reverse
+company/invoice lock chain. Cross-company unique-index contention can still deadlock.
+The manual probe intentionally locks two company rows in opposite order, requires one
+explicit MariaDB 1213 victim, checks a single attempt and no partial commit. It is an engine
+rollback/visibility probe, not proof that every possible application deadlock is absent.
+
+HARNESS / SAFETY
+
+Existing tests/mariadb.php gains concurrency mode; preflight still requires:
+mysql, 127.0.0.1, port 33079, zavsync_v2_stage15_cert, zavsync_stage15,
+explicit reset consent, private password, no DB_URL/socket/read-write overrides,
+testing environment, uncached config/routes and MariaDB 11.8.9.
+Each concurrency case uses independent forked workers / reconnected database sessions,
+socket barriers, bounded read timeouts, child alarms and cleanup/reaping. No sleeps coordinate
+worker ordering. Workers inherit only synthetic fixtures and guarded test configuration.
+HTTP stray requests are forbidden; SMTP remains blocked by the existing guard. All tested
+submission paths bind fake providers. Unexpected worker exceptions fail the parent without
+printing exception messages or credentials.
+MariaDB-only cases are skipped in ordinary SQLite runs, and concurrency mode uses
+--fail-on-skipped --fail-on-risky --fail-on-warning --fail-on-phpunit-deprecation.
+Repeated migrate:fresh operations are limited to the explicitly consented disposable database.
+Do not run another PHPUnit/Artisan/cache command concurrently with this runner.
+
+Coverage:
+- native/FBR same-company numbering, separate-company nonblocking allocation, creation replay;
+- conflicting source-company mapping and duplicate source fingerprint;
+- pending same-key/different-key/changed-payload races with one fake send;
+- independent stale-success/stale-failure submission workers in both domains;
+- old import worker failure/progress/completion fencing and multiple resumes;
+- acquisition/chunk/draft rollback, overflow, tenant scope, exact identifiers, timestamps;
+- intentional two-row deadlock, bounded attempts and no partial commit;
+- no accounting effects in FBR/import paths, and no added posting in native draft tests.
+Native draft test fixtures legitimately create native invoices; firewall checks compare their
+expected count rather than incorrectly requiring zero fixture rows.
+
+MANUAL TERMINAL COMMAND — DISPOSABLE MARIADB ONLY
+
+Run from normal macOS Terminal with no other verification process running.
+The private credential file must already exist; do not paste its contents or password.
+The commands intentionally reset the disposable certification database multiple times.
+
+(
+  set -e
+  set +x
+  cd /Users/humzamazhar/Documents/ChatGPT/ZavSync-Backend-V2
+  source "$HOME/.zavsync-stage15-mariadb.env"
+  : "${DB_USER_PASS:?Private DB_USER_PASS is missing}"
+  export APP_ENV=testing PAO_DISABLE=1
+  export DB_CONNECTION=mysql DB_HOST=127.0.0.1 DB_PORT=33079
+  export DB_DATABASE=zavsync_v2_stage15_cert DB_USERNAME=zavsync_stage15
+  export DB_PASSWORD="$DB_USER_PASS" DB_URL='' DB_SOCKET=''
+  export MARIADB_CERTIFICATION_RESET=zavsync_v2_stage15_cert
+  php tests/mariadb.php preflight
+  php tests/mariadb.php concurrency
+)
+
+If preflight detects generated caches, stop all workers/verifiers, clear caches separately,
+then rerun. Never clear/create route caches while any verification process is running.
+Return the complete sanitized PHPUnit output before treating concurrency as certified.
+
+For serial reruns on the changed schema, insert these commands inside the same
+subshell above, after concurrency and before the closing parenthesis:
+php tests/mariadb.php stage15
+php tests/mariadb.php all
+
+FINAL LOCAL VERIFICATION
+SQLite fresh migration + development seed: PASS (84 migrations).
+Stage15: 122 tests, 1,157 assertions, 12 MariaDB-only skips; zero failures/errors.
+Full backend: 611 tests, 3,889 assertions, 12 MariaDB-only skips; zero failures/errors.
+Pint and Composer strict validation: PASS. Composer audit: no vulnerability advisories.
+No MariaDB connection, Docker access, production access or real provider call performed.
+
+PRIOR USER-REPORTED BASELINE (NOT A CERTIFICATION OF THESE NEW CHANGES)
+MariaDB serial: 80 migrations+seed PASS; Stage15 66 tests/466 assertions PASS;
+full backend 551 tests/3,184 assertions PASS.
+MariaDB concurrency and changed-schema runtime certification: PENDING MANUAL EXECUTION.

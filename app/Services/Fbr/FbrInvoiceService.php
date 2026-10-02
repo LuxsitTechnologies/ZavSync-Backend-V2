@@ -21,11 +21,11 @@ class FbrInvoiceService
 
     public function submit(string $companyId, User $user, Invoice $invoice, string $idempotencyKey): Invoice
     {
-        [$attempt, $payload, $context] = DB::transaction(function () use ($companyId, $user, $invoice, $idempotencyKey): array {
+        [$attempt, $payload, $context, $generation] = DB::transaction(function () use ($companyId, $user, $invoice, $idempotencyKey): array {
             $invoice = Invoice::query()->where('company_id', $companyId)->with(['customer', 'lines'])->lockForUpdate()->findOrFail($invoice->id);
             $this->validateForSubmission($invoice);
             if ($invoice->fbr_reference_number !== null || in_array($invoice->fbr_status, [FbrSubmissionStatus::Accepted, FbrSubmissionStatus::Submitted], true)) {
-                return [null, null, null];
+                return [null, null, null, null];
             }
             $configuration = FbrCompanyConfiguration::query()->where('company_id', $companyId)->first();
             if ($configuration === null || blank($configuration->credential)) {
@@ -37,7 +37,7 @@ class FbrInvoiceService
             }
             $payload = $this->payload($invoice);
             $hash = hash('sha256', json_encode($payload, JSON_THROW_ON_ERROR));
-            $attempt = FbrSubmissionAttempt::query()->where('invoice_id', $invoice->id)->where('idempotency_key', $idempotencyKey)->first();
+            $attempt = FbrSubmissionAttempt::query()->where('company_id', $companyId)->where('invoice_id', $invoice->id)->where('idempotency_key', $idempotencyKey)->lockForUpdate()->first();
             if ($attempt !== null && ! hash_equals($attempt->payload_hash, $hash)) {
                 throw new ConflictHttpException('The idempotency key has already been used for a different FBR payload.');
             }
@@ -47,21 +47,26 @@ class FbrInvoiceService
                 throw new ConflictHttpException('Retry the unresolved FBR submission with its original idempotency key.');
             }
             if ($attempt !== null && in_array($attempt->status, [FbrSubmissionStatus::Accepted, FbrSubmissionStatus::Submitted, FbrSubmissionStatus::Rejected], true)) {
-                return [$attempt, null, null];
+                return [$attempt, null, null, null];
             }
             if ($attempt !== null && $attempt->status === FbrSubmissionStatus::Pending && $attempt->updated_at->isAfter(now()->subMinutes(2))) {
-                return [$attempt, null, null];
+                return [$attempt, null, null, null];
             }
+            $previousGeneration = $attempt?->claim_generation ?? 0;
+            if ($previousGeneration < 0 || $previousGeneration >= PHP_INT_MAX) {
+                throw new ConflictHttpException('Submission claim generation is exhausted; administrative review is required.');
+            }
+            $generation = $previousGeneration + 1;
             $attempt ??= FbrSubmissionAttempt::query()->create([
                 'company_id' => $companyId, 'invoice_id' => $invoice->id, 'idempotency_key' => $idempotencyKey,
                 'payload_hash' => $hash, 'status' => FbrSubmissionStatus::Pending,
                 'request_metadata' => ['invoice_number' => $invoice->invoice_number, 'line_count' => $invoice->lines->count(), 'total' => $invoice->total],
                 'submitted_by' => $user->id,
             ]);
-            $attempt->update(['status' => FbrSubmissionStatus::Pending, 'error_message' => null]);
+            $attempt->forceFill(['claim_generation' => $generation, 'status' => FbrSubmissionStatus::Pending, 'error_message' => null])->save();
             $invoice->update(['fbr_status' => FbrSubmissionStatus::Pending]);
 
-            return [$attempt, $payload, new FbrSubmissionContext($endpoint, $configuration->credential, $configuration->environment)];
+            return [$attempt, $payload, new FbrSubmissionContext($endpoint, $configuration->credential, $configuration->environment), $generation];
         });
         if ($payload === null) {
             return Invoice::query()->where('company_id', $companyId)->with(['customer', 'lines', 'journal'])->findOrFail($invoice->id);
@@ -70,18 +75,27 @@ class FbrInvoiceService
             $result = $this->gateway->submit($payload, 'accounting:'.$invoice->id.':'.$idempotencyKey, $context);
         } catch (FbrUnavailableException $exception) {
             $safeMessage = $this->responseSanitizer->sanitize(['message' => $exception->getMessage()])['message'] ?? 'FBR is unavailable.';
-            DB::transaction(function () use ($attempt, $companyId, $invoice, $safeMessage): void {
-                Invoice::query()->where('company_id', $companyId)->lockForUpdate()->findOrFail($invoice->id)->update(['fbr_status' => FbrSubmissionStatus::Failed]);
-                FbrSubmissionAttempt::query()->where('company_id', $companyId)->lockForUpdate()->findOrFail($attempt->id)->update(['status' => FbrSubmissionStatus::Failed, 'error_message' => $safeMessage, 'completed_at' => now()]);
+            DB::transaction(function () use ($attempt, $companyId, $invoice, $safeMessage, $generation): void {
+                $invoice = Invoice::query()->where('company_id', $companyId)->lockForUpdate()->findOrFail($invoice->id);
+                $attempt = FbrSubmissionAttempt::query()->where('company_id', $companyId)->where('invoice_id', $invoice->id)->lockForUpdate()->findOrFail($attempt->id);
+                if ($attempt->claim_generation !== $generation || $attempt->status !== FbrSubmissionStatus::Pending) {
+                    return;
+                }
+                $invoice->update(['fbr_status' => FbrSubmissionStatus::Failed]);
+                $attempt->update(['status' => FbrSubmissionStatus::Failed, 'error_message' => $safeMessage, 'completed_at' => now()]);
             });
 
             throw new FbrUnavailableException($safeMessage);
         }
-        DB::transaction(function () use ($attempt, $companyId, $invoice, $result): void {
+        DB::transaction(function () use ($attempt, $companyId, $invoice, $result, $generation): void {
             $invoice = Invoice::query()->where('company_id', $companyId)->lockForUpdate()->findOrFail($invoice->id);
+            $attempt = FbrSubmissionAttempt::query()->where('company_id', $companyId)->where('invoice_id', $invoice->id)->lockForUpdate()->findOrFail($attempt->id);
+            if ($attempt->claim_generation !== $generation || $attempt->status !== FbrSubmissionStatus::Pending) {
+                return;
+            }
             $metadata = $this->responseSanitizer->sanitize($result->metadata) ?? [];
             $message = $this->responseSanitizer->sanitize(['message' => $result->message])['message'] ?? null;
-            FbrSubmissionAttempt::query()->where('company_id', $companyId)->lockForUpdate()->findOrFail($attempt->id)->update([
+            $attempt->update([
                 'status' => $result->status, 'response_metadata' => $metadata, 'reference_number' => $result->referenceNumber,
                 'error_message' => is_string($message) ? $message : null, 'completed_at' => now(),
             ]);

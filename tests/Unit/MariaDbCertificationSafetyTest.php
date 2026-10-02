@@ -74,6 +74,16 @@ class MariaDbCertificationSafetyTest extends TestCase
         $this->assertStringContainsString('reset consent', $process->getErrorOutput());
     }
 
+    public function test_concurrency_mode_refuses_without_reset_consent_before_database_access(): void
+    {
+        $process = new Process([PHP_BINARY, 'tests/mariadb.php', 'concurrency'], dirname(__DIR__, 2), ['MARIADB_CERTIFICATION_RESET' => '']);
+        $process->setTimeout(10);
+        $process->run();
+        $this->assertSame(2, $process->getExitCode());
+        $this->assertStringContainsString('reset consent', $process->getErrorOutput());
+        $this->assertStringNotContainsString('Usage:', $process->getErrorOutput());
+    }
+
     /** @return array<string, string> */
     private function certificationEnvironment(): array
     {

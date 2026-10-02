@@ -18,7 +18,7 @@ class PakistanFbrSubmissionAttempt extends Model
 
     protected function casts(): array
     {
-        return ['status' => FbrSubmissionStatus::class, 'request_metadata' => 'array', 'response_metadata' => 'array', 'completed_at' => 'datetime'];
+        return ['claim_generation' => 'integer', 'status' => FbrSubmissionStatus::class, 'request_metadata' => 'array', 'response_metadata' => 'array', 'completed_at' => 'datetime'];
     }
 
     public function invoice(): BelongsTo

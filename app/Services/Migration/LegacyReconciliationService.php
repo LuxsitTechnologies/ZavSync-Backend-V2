@@ -96,7 +96,8 @@ class LegacyReconciliationService
             if ($target === null) {
                 continue;
             }
-            if ($target->original_status !== $row['status'] || $target->fbr_reference_number !== (trim((string) ($row['fbr_invoice_number'] ?? '')) ?: null)
+            $reference = (string) ($row['fbr_invoice_number'] ?? '');
+            if ($target->original_status !== $row['status'] || $target->fbr_reference_number !== ($reference === '' ? null : $reference)
                 || $target->original_timestamps !== Arr::only($row, ['created_at', 'updated_at', 'last_attempt_at'])) {
                 $recordDifferences[] = ['entity' => 'fbr_submission', 'source_id' => (string) $row['id'], 'field' => 'evidence'];
             }

@@ -26,13 +26,13 @@ class PakistanFbrSubmissionService
 
     public function submit(string $companyId, User $user, PakistanFbrInvoice $invoice, string $key): PakistanFbrInvoice
     {
-        [$attempt, $payload, $context] = DB::transaction(function () use ($companyId, $user, $invoice, $key): array {
+        [$attempt, $payload, $context, $generation] = DB::transaction(function () use ($companyId, $user, $invoice, $key): array {
             $document = PakistanFbrInvoice::query()->where('company_id', $companyId)->with('lines')->lockForUpdate()->findOrFail($invoice->id);
             if ($document->is_historical) {
                 throw ValidationException::withMessages(['invoice' => 'Historical FBR Invoices are permanently blocked from submission, including ambiguous successes.']);
             }
             if ($document->fbr_reference_number !== null || in_array($document->fbr_status, [FbrSubmissionStatus::Accepted, FbrSubmissionStatus::Submitted], true)) {
-                return [null, null, null];
+                return [null, null, null, null];
             }
             if (! config('services.fbr.pakistan_submission_enabled', false)) {
                 throw new FbrUnavailableException('FBR Invoicing submission is disabled pending provider payload and reference-data certification.');
@@ -50,7 +50,7 @@ class PakistanFbrSubmissionService
             }
             $payload = $this->mapper->map($document, $configuration);
             $hash = hash('sha256', json_encode($payload, JSON_THROW_ON_ERROR));
-            $attempt = $document->fbrAttempts()->where('idempotency_key', $key)->first();
+            $attempt = $document->fbrAttempts()->where('company_id', $companyId)->where('idempotency_key', $key)->lockForUpdate()->first();
             if ($attempt !== null && ! hash_equals($attempt->payload_hash, $hash)) {
                 throw new ConflictHttpException('The idempotency key belongs to a different FBR Invoicing payload.');
             }
@@ -59,21 +59,26 @@ class PakistanFbrSubmissionService
                 throw new ConflictHttpException('Retry the unresolved submission with its original idempotency key.');
             }
             if ($attempt !== null && in_array($attempt->status, [FbrSubmissionStatus::Accepted, FbrSubmissionStatus::Submitted, FbrSubmissionStatus::Rejected], true)) {
-                return [null, null, null];
+                return [null, null, null, null];
             }
             if ($attempt !== null && $attempt->status === FbrSubmissionStatus::Pending && $attempt->updated_at->isAfter(now()->subMinutes(2))) {
-                return [null, null, null];
+                return [null, null, null, null];
             }
+            $previousGeneration = $attempt?->claim_generation ?? 0;
+            if ($previousGeneration < 0 || $previousGeneration >= PHP_INT_MAX) {
+                throw new ConflictHttpException('Submission claim generation is exhausted; administrative review is required.');
+            }
+            $generation = $previousGeneration + 1;
             $attempt ??= PakistanFbrSubmissionAttempt::query()->create([
                 'company_id' => $companyId, 'invoice_id' => $document->id, 'idempotency_key' => $key,
                 'payload_hash' => $hash, 'status' => FbrSubmissionStatus::Pending, 'submitted_by' => $user->id,
                 'request_metadata' => ['invoice_number' => $document->invoice_number, 'total_minor' => $document->total, 'line_count' => $document->lines->count()],
             ]);
-            $attempt->update(['status' => FbrSubmissionStatus::Pending, 'error_message' => null, 'completed_at' => null]);
+            $attempt->forceFill(['claim_generation' => $generation, 'status' => FbrSubmissionStatus::Pending, 'error_message' => null, 'completed_at' => null])->save();
             $document->update(['fbr_status' => FbrSubmissionStatus::Pending]);
             $this->audit->recordOperation($user, $companyId, 'pakistan_fbr_submission_started', 'pakistan_fbr', $document, null, ['attempt_id' => $attempt->id, 'payload_hash' => $hash]);
 
-            return [$attempt, $payload, new FbrSubmissionContext($endpoint, $configuration->credential, $configuration->environment)];
+            return [$attempt, $payload, new FbrSubmissionContext($endpoint, $configuration->credential, $configuration->environment), $generation];
         });
         if ($payload === null) {
             return PakistanFbrInvoice::query()->where('company_id', $companyId)->with('lines')->findOrFail($invoice->id);
@@ -81,8 +86,12 @@ class PakistanFbrSubmissionService
         try {
             $result = $this->gateway->submit($payload, 'pkfbr:'.$invoice->id.':'.$key, $context);
         } catch (FbrUnavailableException) {
-            DB::transaction(function () use ($companyId, $user, $invoice, $attempt): void {
+            DB::transaction(function () use ($companyId, $user, $invoice, $attempt, $generation): void {
                 $document = PakistanFbrInvoice::query()->where('company_id', $companyId)->lockForUpdate()->findOrFail($invoice->id);
+                $attempt = $document->fbrAttempts()->where('company_id', $companyId)->lockForUpdate()->findOrFail($attempt->id);
+                if ($attempt->claim_generation !== $generation || $attempt->status !== FbrSubmissionStatus::Pending) {
+                    return;
+                }
                 $attempt->update(['status' => FbrSubmissionStatus::Failed, 'error_message' => 'Provider unavailable; retry with the original idempotency key.', 'completed_at' => now()]);
                 $document->update(['fbr_status' => FbrSubmissionStatus::Failed]);
                 $this->audit->recordOperation($user, $companyId, 'pakistan_fbr_submission_failed', 'pakistan_fbr', $document, null, ['attempt_id' => $attempt->id, 'status' => 'failed']);
@@ -90,9 +99,16 @@ class PakistanFbrSubmissionService
 
             throw new FbrUnavailableException('FBR is unavailable. Retry with the original idempotency key.');
         }
-        DB::transaction(function () use ($companyId, $user, $invoice, $attempt, $result): void {
+        DB::transaction(function () use ($companyId, $user, $invoice, $attempt, $result, $generation): void {
             $document = PakistanFbrInvoice::query()->where('company_id', $companyId)->lockForUpdate()->findOrFail($invoice->id);
-            $reference = is_string($result->referenceNumber) && trim($result->referenceNumber) !== '' ? mb_substr(trim($result->referenceNumber), 0, 255) : null;
+            $attempt = $document->fbrAttempts()->where('company_id', $companyId)->lockForUpdate()->findOrFail($attempt->id);
+            if ($attempt->claim_generation !== $generation || $attempt->status !== FbrSubmissionStatus::Pending) {
+                return;
+            }
+            if (is_string($result->referenceNumber) && mb_strlen($result->referenceNumber) > 255) {
+                throw new FbrUnavailableException('Provider reference exceeds the supported length; reconciliation is required.');
+            }
+            $reference = is_string($result->referenceNumber) && trim($result->referenceNumber) !== '' ? $result->referenceNumber : null;
             $status = $result->status === FbrSubmissionStatus::Accepted && $reference === null ? FbrSubmissionStatus::Submitted : $result->status;
             $metadata = $this->sanitizer->sanitize($result->metadata) ?? [];
             $message = $this->sanitizer->sanitize(['message' => $result->message])['message'] ?? null;

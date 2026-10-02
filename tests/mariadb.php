@@ -7,8 +7,8 @@ use Tests\MariaDbCertification;
 require_once dirname(__DIR__).'/vendor/autoload.php';
 
 $mode = $argv[1] ?? '';
-if (! in_array($mode, ['preflight', 'stage15', 'all'], true) || count($argv) !== 2) {
-    fwrite(STDERR, "Usage: php tests/mariadb.php preflight|stage15|all\n");
+if (! in_array($mode, ['preflight', 'stage15', 'all', 'concurrency'], true) || count($argv) !== 2) {
+    fwrite(STDERR, "Usage: php tests/mariadb.php preflight|stage15|all|concurrency\n");
     exit(2);
 }
 try {
@@ -19,6 +19,7 @@ try {
 }
 $root = dirname(__DIR__);
 $xml = MariaDbCertification::configuration($root);
+putenv('MARIADB_CERTIFICATION_CONCURRENCY='.($mode === 'concurrency' ? '1' : '0'));
 foreach (['APP_ENV' => 'testing', 'DB_URL' => '', 'DB_SOCKET' => '', 'MAIL_MAILER' => 'array',
     'CACHE_STORE' => 'array', 'SESSION_DRIVER' => 'array', 'QUEUE_CONNECTION' => 'sync',
     'FBR_PAKISTAN_SUBMISSION_ENABLED' => 'false'] as $key => $value) {
@@ -48,6 +49,11 @@ try {
         .' --configuration '.escapeshellarg($temporary).' --do-not-cache-result --fail-on-risky';
     if ($mode === 'stage15') {
         $command .= ' '.escapeshellarg(__DIR__.'/Feature/Stage15');
+    }
+    if ($mode === 'concurrency') {
+        $command .= ' --fail-on-skipped --fail-on-warning --fail-on-phpunit-deprecation --filter '
+            .escapeshellarg('MariaDbConcurrencyTest|FbrSubmissionLeaseConcurrencyTest|LegacyImportOwnershipConcurrencyTest|TechnicalIdentifierTest|ClaimGenerationTest|LegacyImportGenerationTest|CertificationDateTimeTest|InvoiceCreationRollbackTest|PakistanFbrDomainTest|MigrationIntegrityTest')
+            .' '.escapeshellarg(__DIR__.'/Feature/Stage15');
     }
     passthru($command, $status);
 } finally {

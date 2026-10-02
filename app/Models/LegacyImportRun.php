@@ -18,7 +18,7 @@ class LegacyImportRun extends Model
 
     protected function casts(): array
     {
-        return ['source_manifest' => 'array', 'progress' => 'array', 'reconciliation' => 'array', 'started_at' => 'datetime', 'completed_at' => 'datetime'];
+        return ['execution_generation' => 'integer', 'source_manifest' => 'array', 'progress' => 'array', 'reconciliation' => 'array', 'started_at' => 'datetime', 'completed_at' => 'datetime'];
     }
 
     public function company(): BelongsTo

@@ -19,6 +19,7 @@ use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Validator;
 use Illuminate\Validation\ValidationException;
 use InvalidArgumentException;
+use Symfony\Component\HttpKernel\Exception\ConflictHttpException;
 use Throwable;
 
 class LegacyInvoiceImportService
@@ -60,47 +61,89 @@ class LegacyInvoiceImportService
             return ['mode' => 'DRY_RUN', 'writes_performed' => false, 'source_system' => $sourceSystem, 'source_company_id' => $sourceCompanyId, 'company_mapping' => ['source_id' => $sourceCompanyId, 'target_id' => $company->id], ...$analysis];
         }
 
-        $run = $this->run($company, $actor, $sourceSystem, $fingerprint, $filename, $snapshot, $sourceCompanyId, $resumeRunId);
-        $this->audit->recordOperation($actor, $company->id, 'legacy_invoice_import_started', 'migration', $run, null, ['source_system' => $sourceSystem, 'mode' => 'IMPORT']);
+        $run = DB::transaction(function () use ($company, $actor, $sourceSystem, $fingerprint, $filename, $snapshot, $sourceCompanyId, $resumeRunId): LegacyImportRun {
+            Company::query()->whereKey($company->id)->lockForUpdate()->firstOrFail();
+
+            return $this->run($company, $actor, $sourceSystem, $fingerprint, $filename, $snapshot, $sourceCompanyId, $resumeRunId);
+        });
+        if ($run->status === 'COMPLETED') {
+            return ['mode' => 'IMPORT', 'writes_performed' => false, 'run_id' => $run->id, ...$this->reconciliation->reconcile($run, $source)];
+        }
+        $generation = $run->execution_generation;
         try {
+            $this->withOwnership($run, $generation, function (LegacyImportRun $owned) use ($actor, $company, $sourceSystem): void {
+                $this->audit->recordOperation($actor, $company->id, 'legacy_invoice_import_started', 'migration', $owned, null, ['source_system' => $sourceSystem, 'mode' => 'IMPORT']);
+            });
             try {
-                DB::transaction(function () use ($run, $company, $sourceCompanyId): void {
-                    Company::query()->whereKey($company->id)->lockForUpdate()->firstOrFail();
-                    $this->mapCompany($run, $company, $sourceCompanyId);
+                $this->withOwnership($run, $generation, function (LegacyImportRun $owned) use ($company, $sourceCompanyId): void {
+                    $this->mapCompany($owned, $company, $sourceCompanyId);
                 });
             } catch (UniqueConstraintViolationException|ValidationException $exception) {
-                $this->exception($run, $company->id, 'company', $sourceCompanyId, null, 'CROSS_TENANT_REFERENCE', ['reason' => 'company_mapping_conflict']);
+                $this->withOwnership($run, $generation, function (LegacyImportRun $owned) use ($company, $sourceCompanyId): void {
+                    $this->exception($owned, $company->id, 'company', $sourceCompanyId, null, 'CROSS_TENANT_REFERENCE', ['reason' => 'company_mapping_conflict']);
+                });
                 throw ValidationException::withMessages(['company' => 'The source company already has a different tenant mapping.']);
             }
-            if ($source['invoices'] === []) {
-                $this->exception($run, $company->id, 'company', $sourceCompanyId, null, 'MISSING_COMPANY_MAPPING', ['reason' => 'no_source_invoices_for_company']);
-            }
-            collect($source['invoices'])->countBy(fn (array $invoice): string => (string) ($invoice['id'] ?? ''))->filter(fn (int $count): bool => $count > 1)->each(function (int $count, string $sourceId) use ($run, $company): void {
-                $this->exception($run, $company->id, 'invoice', $sourceId, null, 'DUPLICATE_SOURCE_ID', ['occurrences' => $count]);
+            $this->withOwnership($run, $generation, function (LegacyImportRun $owned) use ($source, $company, $sourceCompanyId): void {
+                if ($source['invoices'] === []) {
+                    $this->exception($owned, $company->id, 'company', $sourceCompanyId, null, 'MISSING_COMPANY_MAPPING', ['reason' => 'no_source_invoices_for_company']);
+                }
+                collect($source['invoices'])->countBy(fn (array $invoice): string => (string) ($invoice['id'] ?? ''))->filter(fn (int $count): bool => $count > 1)->each(function (int $count, string $sourceId) use ($owned, $company): void {
+                    $this->exception($owned, $company->id, 'invoice', $sourceId, null, 'DUPLICATE_SOURCE_ID', ['occurrences' => $count]);
+                });
             });
             $processed = 0;
             $chunks = array_chunk($source['invoices'], max(1, (int) config('legacy_migration.chunk_size', 100)));
             foreach ($chunks as $chunk) {
-                DB::transaction(function () use ($chunk, $source, $run, $company, $actor, $sourceSystem, &$processed): void {
-                    Company::query()->whereKey($company->id)->lockForUpdate()->firstOrFail();
+                $this->withOwnership($run, $generation, function (LegacyImportRun $owned) use ($chunk, $source, $company, $actor, $sourceSystem, &$processed): void {
                     foreach ($chunk as $row) {
-                        $this->importInvoice($row, $source, $run, $company, $actor, $sourceSystem);
+                        $this->importInvoice($row, $source, $owned, $company, $actor, $sourceSystem);
                         $processed++;
                     }
-                    $run->update(['progress' => ['invoices_processed' => $processed, 'invoices_total' => count($source['invoices'])]]);
+                    $owned->update(['progress' => ['invoices_processed' => $processed, 'invoices_total' => count($source['invoices'])]]);
                 });
             }
-            $report = $this->reconciliation->reconcile($run, $source);
-            $run->update(['status' => 'COMPLETED', 'completed_at' => now(), 'reconciliation' => $report, 'failure_message' => null]);
-            $this->audit->recordOperation($actor, $company->id, 'legacy_invoice_import_completed', 'migration', $run, null, ['source_counts' => $report['source_counts'], 'target_counts' => $report['target_counts'], 'open_exception_count' => $report['open_exception_count']]);
+            $report = $this->withOwnership($run, $generation, function (LegacyImportRun $owned) use ($source, $actor, $company): array {
+                $report = $this->reconciliation->reconcile($owned, $source);
+                $owned->update(['status' => 'COMPLETED', 'completed_at' => now(), 'reconciliation' => $report, 'failure_message' => null]);
+                $this->audit->recordOperation($actor, $company->id, 'legacy_invoice_import_completed', 'migration', $owned, null, ['source_counts' => $report['source_counts'], 'target_counts' => $report['target_counts'], 'open_exception_count' => $report['open_exception_count']]);
+
+                return $report;
+            });
 
             return ['mode' => 'IMPORT', 'writes_performed' => true, 'run_id' => $run->id, ...$report];
         } catch (Throwable $exception) {
-            $run->update(['status' => 'FAILED', 'failure_message' => 'Import failed. Review the exception ledger and correlated application error.']);
-            $this->audit->recordOperation($actor, $company->id, 'legacy_invoice_import_failed', 'migration', $run, null, ['status' => 'FAILED']);
+            DB::transaction(function () use ($run, $generation, $actor, $company): void {
+                $owned = $this->lockRun($run);
+                if ($owned->execution_generation !== $generation || $owned->status !== 'RUNNING') {
+                    return;
+                }
+                $owned->update(['status' => 'FAILED', 'failure_message' => 'Import failed. Review the exception ledger and correlated application error.']);
+                $this->audit->recordOperation($actor, $company->id, 'legacy_invoice_import_failed', 'migration', $owned, null, ['status' => 'FAILED']);
+            });
 
             throw $exception;
         }
+    }
+
+    private function lockRun(LegacyImportRun $run): LegacyImportRun
+    {
+        Company::query()->whereKey($run->company_id)->lockForUpdate()->firstOrFail();
+
+        return LegacyImportRun::query()->where('company_id', $run->company_id)->lockForUpdate()->findOrFail($run->id);
+    }
+
+    /** @param \Closure(LegacyImportRun): mixed $operation */
+    private function withOwnership(LegacyImportRun $run, int $generation, \Closure $operation): mixed
+    {
+        return DB::transaction(function () use ($run, $generation, $operation): mixed {
+            $owned = $this->lockRun($run);
+            if ($owned->execution_generation !== $generation || $owned->status !== 'RUNNING') {
+                throw new ConflictHttpException('This import execution no longer owns the run.');
+            }
+
+            return $operation($owned);
+        });
     }
 
     /** @param array<string, mixed> $snapshot */
@@ -256,16 +299,19 @@ class LegacyInvoiceImportService
     private function run(Company $company, User $actor, string $sourceSystem, string $fingerprint, string $filename, array $snapshot, string $sourceCompanyId, ?string $resumeRunId): LegacyImportRun
     {
         if ($resumeRunId !== null) {
-            $run = LegacyImportRun::query()->where('company_id', $company->id)->findOrFail($resumeRunId);
+            $run = LegacyImportRun::query()->where('company_id', $company->id)->lockForUpdate()->findOrFail($resumeRunId);
             if ($run->source_company_id !== $sourceCompanyId || $run->source_system !== $sourceSystem || ! hash_equals($run->source_fingerprint, $fingerprint) || ! in_array($run->status, ['FAILED', 'RUNNING'], true)) {
                 throw ValidationException::withMessages(['resume' => 'The import run cannot be resumed with this source.']);
             }
-            $run->update(['status' => 'RUNNING', 'failure_message' => null]);
+            if ($run->execution_generation < 0 || $run->execution_generation >= PHP_INT_MAX) {
+                throw new ConflictHttpException('Import execution generation is exhausted; administrative review is required.');
+            }
+            $run->forceFill(['execution_generation' => $run->execution_generation + 1, 'status' => 'RUNNING', 'failure_message' => null])->save();
 
             return $run;
         }
 
-        $existing = LegacyImportRun::query()->where('company_id', $company->id)->where('source_system', $sourceSystem)->where('source_fingerprint', $fingerprint)->first();
+        $existing = LegacyImportRun::query()->where('company_id', $company->id)->where('source_system', $sourceSystem)->where('source_fingerprint', $fingerprint)->lockForUpdate()->first();
         if ($existing !== null) {
             if ($existing->source_company_id !== $sourceCompanyId) {
                 throw ValidationException::withMessages(['CROSS_TENANT_REFERENCE' => 'The import run belongs to a different source company.']);
@@ -276,13 +322,16 @@ class LegacyInvoiceImportService
             throw ValidationException::withMessages(['source' => 'This source is already assigned to an import run. Resume that run explicitly.']);
         }
 
-        return LegacyImportRun::query()->create([
+        $run = new LegacyImportRun([
             'company_id' => $company->id, 'source_system' => $sourceSystem, 'source_fingerprint' => $fingerprint,
             'source_company_id' => $sourceCompanyId,
             'status' => 'RUNNING', 'mode' => 'IMPORT', 'source_filename' => $filename,
             'source_manifest' => Arr::only($snapshot['manifest'], ['counts', 'invoice_statuses', 'fbr_statuses', 'financial_totals', 'mismatch_counts']),
             'progress' => ['invoices_processed' => 0, 'invoices_total' => 0], 'created_by' => $actor->id, 'started_at' => now(),
         ]);
+        $run->forceFill(['execution_generation' => 1])->save();
+
+        return $run;
     }
 
     private function mapCompany(LegacyImportRun $run, Company $company, string $sourceCompanyId): void
@@ -321,7 +370,7 @@ class LegacyInvoiceImportService
 
             return;
         }
-        $invoiceNumber = trim((string) ($row['invoice_number'] ?? ''));
+        $invoiceNumber = (string) ($row['invoice_number'] ?? '');
         if ($invoiceNumber === '' || PakistanFbrInvoice::query()->where('company_id', $company->id)->where('invoice_number', $invoiceNumber)->exists()) {
             $this->exception($run, $company->id, 'invoice', $sourceId, null, 'DUPLICATE_INVOICE_NUMBER', ['invoice_number' => $invoiceNumber]);
 
@@ -442,7 +491,8 @@ class LegacyInvoiceImportService
             return ['status' => FbrSubmissionStatus::NotSubmitted, 'reference' => null, 'requires_review' => false];
         }
         $successful = mb_strtolower((string) ($submission['status'] ?? '')) === 'success';
-        $reference = trim((string) ($submission['fbr_invoice_number'] ?? '')) ?: null;
+        $reference = (string) ($submission['fbr_invoice_number'] ?? '');
+        $reference = $reference === '' ? null : $reference;
 
         return ['status' => $successful ? ($reference === null ? FbrSubmissionStatus::Submitted : FbrSubmissionStatus::Accepted) : FbrSubmissionStatus::Failed, 'reference' => $reference, 'requires_review' => $successful && $reference === null];
     }
