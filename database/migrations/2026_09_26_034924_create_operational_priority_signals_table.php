@@ -43,8 +43,8 @@ return new class extends Migration
             $table->text('resolution_note')->nullable();
             $table->timestamps();
             $table->unique(['company_id', 'fingerprint']);
-            $table->index(['company_id', 'status', 'priority_score']);
-            $table->index(['company_id', 'source_module', 'effective_at']);
+            $table->index(['company_id', 'status', 'priority_score'], 'ops_company_status_priority_idx');
+            $table->index(['company_id', 'source_module', 'effective_at'], 'ops_company_module_effective_idx');
         });
     }
 

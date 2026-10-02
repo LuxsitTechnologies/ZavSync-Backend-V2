@@ -125,7 +125,7 @@ return new class extends Migration
             $table->unique(['company_id', 'sequence']);
             $table->unique(['company_id', 'number']);
             $table->unique(['company_id', 'idempotency_key']);
-            $table->index(['company_id', 'purchase_order_id', 'receipt_date']);
+            $table->index(['company_id', 'purchase_order_id', 'receipt_date'], 'pr_company_po_date_idx');
         });
 
         Schema::create('purchase_receipt_lines', function (Blueprint $table) {
@@ -137,7 +137,7 @@ return new class extends Migration
             $table->unsignedBigInteger('quantity_received_milli');
             $table->unsignedBigInteger('remaining_quantity_milli');
             $table->timestamps();
-            $table->unique(['purchase_receipt_id', 'purchase_order_line_id']);
+            $table->unique(['purchase_receipt_id', 'purchase_order_line_id'], 'prl_receipt_order_line_uq');
         });
 
         Schema::create('supplier_bills', function (Blueprint $table) {
@@ -177,7 +177,7 @@ return new class extends Migration
             $table->timestamps();
             $table->unique(['company_id', 'sequence']);
             $table->unique(['company_id', 'bill_number']);
-            $table->unique(['company_id', 'supplier_id', 'supplier_invoice_number']);
+            $table->unique(['company_id', 'supplier_id', 'supplier_invoice_number'], 'sb_company_supplier_invoice_uq');
             $table->unique(['company_id', 'creation_idempotency_key']);
             $table->index(['company_id', 'status', 'posting_date']);
             $table->index(['company_id', 'supplier_id', 'due_date']);
@@ -240,7 +240,7 @@ return new class extends Migration
             $table->foreignUuid('supplier_bill_id')->constrained()->restrictOnDelete();
             $table->unsignedBigInteger('amount');
             $table->timestamps();
-            $table->unique(['supplier_payment_id', 'supplier_bill_id']);
+            $table->unique(['supplier_payment_id', 'supplier_bill_id'], 'spa_payment_bill_uq');
             $table->index(['supplier_bill_id', 'created_at']);
         });
     }

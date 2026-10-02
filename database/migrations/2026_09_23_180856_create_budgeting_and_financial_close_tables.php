@@ -99,7 +99,7 @@ return new class extends Migration
             $table->foreignUuid('accounting_period_id')->constrained()->restrictOnDelete();
             $table->bigInteger('amount');
             $table->timestamps();
-            $table->unique(['forecast_id', 'account_id', 'accounting_period_id']);
+            $table->unique(['forecast_id', 'account_id', 'accounting_period_id'], 'fl_forecast_account_period_uq');
             $table->index(['company_id', 'accounting_period_id', 'account_id']);
         });
 

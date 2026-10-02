@@ -86,7 +86,7 @@ return new class extends Migration
             $table->boolean('is_active')->default(true);
             $table->timestamps();
             $table->unique(['employee_payroll_profile_id', 'payroll_component_id'], 'employee_payroll_component_unique');
-            $table->index(['company_id', 'payroll_component_id']);
+            $table->index(['company_id', 'payroll_component_id'], 'epc_company_component_idx');
         });
 
         Schema::create('payroll_statutory_rules', function (Blueprint $table) {
@@ -292,8 +292,8 @@ return new class extends Migration
         Schema::create('payroll_liability_settlement_allocations', function (Blueprint $table) {
             $table->uuid('id')->primary();
             $table->foreignUuid('company_id')->constrained()->restrictOnDelete();
-            $table->foreignUuid('payroll_liability_settlement_id')->constrained()->cascadeOnDelete();
-            $table->foreignUuid('payroll_entry_line_id')->constrained()->restrictOnDelete();
+            $table->foreignUuid('payroll_liability_settlement_id')->constrained(indexName: 'plsa_settlement_fk')->cascadeOnDelete();
+            $table->foreignUuid('payroll_entry_line_id')->constrained(indexName: 'plsa_entry_line_fk')->restrictOnDelete();
             $table->unsignedBigInteger('amount');
             $table->timestamps();
             $table->unique(['payroll_liability_settlement_id', 'payroll_entry_line_id'], 'payroll_settlement_line_unique');

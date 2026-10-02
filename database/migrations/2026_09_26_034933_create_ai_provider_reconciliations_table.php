@@ -25,7 +25,7 @@ return new class extends Migration
             $table->string('provider_reference')->nullable();
             $table->timestamp('reconciled_at')->nullable();
             $table->timestamps();
-            $table->unique(['company_id', 'provider', 'period_start', 'period_end']);
+            $table->unique(['company_id', 'provider', 'period_start', 'period_end'], 'apr_company_provider_period_uq');
             $table->index(['company_id', 'status', 'period_end']);
         });
     }

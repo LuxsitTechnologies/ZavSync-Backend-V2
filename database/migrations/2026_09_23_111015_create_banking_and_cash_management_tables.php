@@ -57,9 +57,9 @@ return new class extends Migration
             $table->foreignId('imported_by')->constrained('users')->restrictOnDelete();
             $table->timestamp('confirmed_at')->nullable();
             $table->timestamps();
-            $table->unique(['company_id', 'financial_account_id', 'file_hash']);
+            $table->unique(['company_id', 'financial_account_id', 'file_hash'], 'bsi_company_account_hash_uq');
             $table->unique(['company_id', 'idempotency_key']);
-            $table->index(['company_id', 'financial_account_id', 'status']);
+            $table->index(['company_id', 'financial_account_id', 'status'], 'bsi_company_account_status_idx');
         });
 
         Schema::create('bank_transactions', function (Blueprint $table) {
@@ -139,7 +139,7 @@ return new class extends Migration
             $table->foreignId('posted_by')->nullable()->constrained('users')->nullOnDelete();
             $table->timestamp('posted_at')->nullable();
             $table->timestamps();
-            $table->unique(['company_id', 'provider', 'settlement_reference']);
+            $table->unique(['company_id', 'provider', 'settlement_reference'], 'gs_company_provider_reference_uq');
             $table->unique(['company_id', 'idempotency_key']);
             $table->index(['company_id', 'settlement_date', 'status']);
         });
@@ -153,7 +153,7 @@ return new class extends Migration
             $table->unsignedBigInteger('amount');
             $table->timestamps();
             $table->unique(['gateway_settlement_id', 'source_type', 'source_id'], 'gateway_settlement_allocation_unique');
-            $table->index(['company_id', 'source_type', 'source_id']);
+            $table->index(['company_id', 'source_type', 'source_id'], 'gsa_company_source_idx');
         });
 
         Schema::create('bank_reconciliations', function (Blueprint $table) {

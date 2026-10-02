@@ -26,7 +26,7 @@ return new class extends Migration
             $table->string('etag')->nullable();
             $table->timestamp('synced_at');
             $table->timestamps();
-            $table->unique(['calendar_provider_connection_id', 'external_event_id']);
+            $table->unique(['calendar_provider_connection_id', 'external_event_id'], 'ce_connection_external_event_uq');
             $table->index(['company_id', 'starts_at']);
         });
     }
