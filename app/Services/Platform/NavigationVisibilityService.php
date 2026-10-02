@@ -80,7 +80,7 @@ class NavigationVisibilityService
     {
         $modules = PlatformModule::query()->orderBy('name')->get()->keyBy('key');
         $entitledKeys = $this->entitlements->enabledModules($companyId);
-        $hiddenKeys = CompanyNavigationPreference::query()->where('company_id', $companyId)->where('is_visible', false)->pluck('item_key')->all();
+        $preferences = CompanyNavigationPreference::query()->where('company_id', $companyId)->get()->keyBy('item_key');
         $allPermissions = in_array('*', $permissions, true);
         $items = [];
 
@@ -89,7 +89,8 @@ class NavigationVisibilityService
             $active = $module !== null && $module->is_active;
             $entitled = in_array($moduleKey, $entitledKeys, true);
             $authorized = $allPermissions || in_array($permission, $permissions, true);
-            $presentationVisible = ! in_array($key, $hiddenKeys, true);
+            $visibilityOverride = $preferences->get($key)?->is_visible;
+            $presentationVisible = $visibilityOverride !== false;
             $reason = match (true) {
                 ! $active => 'PLATFORM_INACTIVE',
                 ! $entitled => 'NOT_ENTITLED',
@@ -101,6 +102,7 @@ class NavigationVisibilityService
                 'key' => $key, 'label' => $label, 'group' => $group, 'order' => count($items),
                 'module_key' => $moduleKey, 'required_permission' => $permission,
                 'platform_active' => $active, 'entitled' => $entitled, 'authorized' => $authorized,
+                'visibility_override' => $visibilityOverride,
                 'presentation_visible' => $presentationVisible, 'effective_visible' => $reason === null,
                 'unavailable_reason' => $reason,
             ];

@@ -32,6 +32,8 @@ class NavigationVisibilityTest extends TestCase
         $this->assertSame('People', $response->json('items.0.group'));
         $this->assertSame('hrm.employees', $response->json('items.0.key'));
         $this->assertSame(1, $this->item($response->json(), 'fbr.invoicing')['order']);
+        $this->assertNull($this->item($response->json(), 'fbr.invoicing')['visibility_override']);
+        $this->assertNull($this->item($response->json(), 'accounting.invoices')['visibility_override']);
         $this->assertDatabaseCount('company_navigation_preferences', 0);
     }
 
@@ -45,6 +47,8 @@ class NavigationVisibilityTest extends TestCase
         $this->assertContains('accounting.invoices', $response->json('visible_keys'));
         $this->assertNotContains('fbr.invoicing', $response->json('visible_keys'));
         $this->assertSame('HIDDEN_BY_COMPANY', $this->item($response->json(), 'fbr.invoicing')['unavailable_reason']);
+        $this->assertFalse($this->item($response->json(), 'fbr.invoicing')['visibility_override']);
+        $this->assertNull($this->item($response->json(), 'accounting.invoices')['visibility_override']);
         $this->assertDatabaseHas('company_navigation_preferences', ['company_id' => $company->id, 'item_key' => 'fbr.invoicing', 'is_visible' => false, 'updated_by' => $user->id]);
         $this->assertDatabaseHas('audit_logs', ['company_id' => $company->id, 'action' => 'navigation_visibility_updated']);
         $this->assertSame(
@@ -67,6 +71,7 @@ class NavigationVisibilityTest extends TestCase
 
         $restored = $this->deleteJson('/api/v1/platform/navigation/accounting.invoices', [], ['X-Company-Id' => $company->id])->assertOk();
         $this->assertContains('accounting.invoices', $restored->json('visible_keys'));
+        $this->assertNull($this->item($restored->json(), 'accounting.invoices')['visibility_override']);
         $this->assertDatabaseCount('company_navigation_preferences', 0);
         $this->assertDatabaseHas('audit_logs', ['company_id' => $company->id, 'action' => 'navigation_visibility_reset']);
         $this->assertNoFinancialEffects();
@@ -78,14 +83,20 @@ class NavigationVisibilityTest extends TestCase
         $this->subscribe($company, ['invoicing']);
 
         $shown = $this->putJson('/api/v1/platform/navigation/fbr.invoicing', ['is_visible' => true], ['X-Company-Id' => $company->id])->assertOk();
+        $this->assertTrue($this->item($shown->json(), 'fbr.invoicing')['visibility_override']);
+        $this->assertFalse($this->item($shown->json(), 'fbr.invoicing')['effective_visible']);
         $this->assertSame('NOT_AUTHORIZED', $this->item($shown->json(), 'fbr.invoicing')['unavailable_reason']);
         $this->assertNotContains('fbr.invoicing', $shown->json('visible_keys'));
+        $this->getJson('/api/v1/pakistan-fbr/invoices', ['X-Company-Id' => $company->id])->assertForbidden();
 
         $companyWithoutEntitlement = $this->actingAsCompanyUser(['platform.settings.manage', 'accounting.view', 'pakistan_fbr.view'])[1];
         $this->subscribe($companyWithoutEntitlement, ['crm']);
         $unentitled = $this->putJson('/api/v1/platform/navigation/fbr.invoicing', ['is_visible' => true], ['X-Company-Id' => $companyWithoutEntitlement->id])->assertOk();
+        $this->assertTrue($this->item($unentitled->json(), 'fbr.invoicing')['visibility_override']);
+        $this->assertFalse($this->item($unentitled->json(), 'fbr.invoicing')['effective_visible']);
         $this->assertSame('NOT_ENTITLED', $this->item($unentitled->json(), 'fbr.invoicing')['unavailable_reason']);
         $this->assertSame('NOT_ENTITLED', $this->item($unentitled->json(), 'accounting.invoices')['unavailable_reason']);
+        $this->getJson('/api/v1/pakistan-fbr/invoices', ['X-Company-Id' => $companyWithoutEntitlement->id])->assertForbidden();
     }
 
     public function test_fbr_configuration_permission_does_not_grant_fbr_invoice_navigation(): void
@@ -107,6 +118,8 @@ class NavigationVisibilityTest extends TestCase
         PlatformModule::query()->whereKey('invoicing')->update(['is_active' => false]);
 
         $response = $this->putJson('/api/v1/platform/navigation/fbr.invoicing', ['is_visible' => true], ['X-Company-Id' => $company->id])->assertOk();
+        $this->assertTrue($this->item($response->json(), 'fbr.invoicing')['visibility_override']);
+        $this->assertFalse($this->item($response->json(), 'fbr.invoicing')['effective_visible']);
         $this->assertSame('PLATFORM_INACTIVE', $this->item($response->json(), 'fbr.invoicing')['unavailable_reason']);
         $this->assertSame('PLATFORM_INACTIVE', $this->item($response->json(), 'accounting.invoices')['unavailable_reason']);
         $this->assertContains('invoicing', app(EntitlementService::class)->enabledModules($company->id));
@@ -238,6 +251,79 @@ class NavigationVisibilityTest extends TestCase
         $this->assertSame(['invoicing'], $response->json('companies.0.modules'));
         $this->assertContains('accounting.invoices', $response->json('companies.0.effective_navigation.visible_keys'));
         $this->assertNotContains('fbr.invoicing', $response->json('companies.0.effective_navigation.visible_keys'));
+        $this->assertNull($this->item($response->json('companies.0.effective_navigation'), 'accounting.invoices')['visibility_override']);
+    }
+
+    public function test_explicit_show_hide_and_reset_round_trip_through_administration_and_auth_me(): void
+    {
+        [, $company] = $this->actingAsCompanyUser(['platform.settings.manage', 'pakistan_fbr.view']);
+        $this->subscribe($company, ['invoicing']);
+        $url = '/api/v1/platform/navigation/fbr.invoicing';
+        $headers = ['X-Company-Id' => $company->id];
+
+        $default = $this->getJson('/api/v1/platform/navigation', $headers)->assertOk();
+        $this->assertNull($this->item($default->json(), 'fbr.invoicing')['visibility_override']);
+        $this->assertTrue($this->item($default->json(), 'fbr.invoicing')['effective_visible']);
+
+        $shown = $this->putJson($url, ['is_visible' => true], $headers)->assertOk();
+        $this->assertTrue($this->item($shown->json(), 'fbr.invoicing')['visibility_override']);
+        $this->assertTrue($this->item($shown->json(), 'fbr.invoicing')['presentation_visible']);
+        $this->assertTrue($this->item($this->getJson('/api/v1/platform/navigation', $headers)->assertOk()->json(), 'fbr.invoicing')['visibility_override']);
+        $this->assertTrue($this->item($this->getJson('/api/v1/auth/me')->assertOk()->json('companies.0.effective_navigation'), 'fbr.invoicing')['visibility_override']);
+
+        $hidden = $this->putJson($url, ['is_visible' => false], $headers)->assertOk();
+        $this->assertFalse($this->item($hidden->json(), 'fbr.invoicing')['visibility_override']);
+        $this->assertFalse($this->item($hidden->json(), 'fbr.invoicing')['effective_visible']);
+        $this->assertFalse($this->item($this->getJson('/api/v1/auth/me')->assertOk()->json('companies.0.effective_navigation'), 'fbr.invoicing')['visibility_override']);
+
+        $reset = $this->deleteJson($url, [], $headers)->assertOk();
+        $this->assertNull($this->item($reset->json(), 'fbr.invoicing')['visibility_override']);
+        $this->assertTrue($this->item($reset->json(), 'fbr.invoicing')['effective_visible']);
+        $this->assertNull($this->item($this->getJson('/api/v1/auth/me')->assertOk()->json('companies.0.effective_navigation'), 'fbr.invoicing')['visibility_override']);
+        $this->assertDatabaseCount('company_navigation_preferences', 0);
+    }
+
+    public function test_company_switch_preserves_distinct_default_hide_and_show_override_states(): void
+    {
+        [$user, $companyA] = $this->actingAsCompanyUser(['pakistan_fbr.view']);
+        $companyB = Company::factory()->create();
+        $companyC = Company::factory()->create();
+        foreach ([$companyA, $companyB, $companyC] as $company) {
+            $this->subscribe($company, ['invoicing']);
+            if ($company->isNot($companyA)) {
+                $role = Role::factory()->for($company)->create();
+                $role->permissions()->attach(Permission::query()->firstOrCreate(['name' => 'pakistan_fbr.view']));
+                CompanyUser::query()->create(['company_id' => $company->id, 'user_id' => $user->id, 'role_id' => $role->id, 'is_active' => true]);
+            }
+        }
+        CompanyNavigationPreference::factory()->for($companyB)->create(['item_key' => 'fbr.invoicing', 'is_visible' => false]);
+        CompanyNavigationPreference::factory()->for($companyC)->create(['item_key' => 'fbr.invoicing', 'is_visible' => true]);
+
+        foreach ([[$companyA, null, true], [$companyB, false, false], [$companyC, true, true]] as [$company, $override, $effective]) {
+            $navigation = $this->postJson('/api/v1/auth/switch-company', ['company_id' => $company->id])->assertOk()->json('company.effective_navigation');
+            $this->assertSame($override, $this->item($navigation, 'fbr.invoicing')['visibility_override']);
+            $this->assertSame($effective, $this->item($navigation, 'fbr.invoicing')['effective_visible']);
+            $this->assertSame($override, $this->item($this->getJson('/api/v1/platform/navigation', ['X-Company-Id' => $company->id])->assertOk()->json(), 'fbr.invoicing')['visibility_override']);
+        }
+    }
+
+    public function test_accounting_and_fbr_overrides_remain_independent_in_both_directions(): void
+    {
+        [, $company] = $this->actingAsCompanyUser(['platform.settings.manage', 'accounting.view', 'pakistan_fbr.view']);
+        $this->subscribe($company, ['invoicing']);
+        $headers = ['X-Company-Id' => $company->id];
+
+        $fbrHidden = $this->putJson('/api/v1/platform/navigation/fbr.invoicing', ['is_visible' => false], $headers)->assertOk();
+        $this->assertNull($this->item($fbrHidden->json(), 'accounting.invoices')['visibility_override']);
+        $this->assertFalse($this->item($fbrHidden->json(), 'fbr.invoicing')['visibility_override']);
+
+        $accountingHidden = $this->putJson('/api/v1/platform/navigation/accounting.invoices', ['is_visible' => false], $headers)->assertOk();
+        $fbrShown = $this->putJson('/api/v1/platform/navigation/fbr.invoicing', ['is_visible' => true], $headers)->assertOk();
+        $this->assertFalse($this->item($accountingHidden->json(), 'accounting.invoices')['visibility_override']);
+        $this->assertFalse($this->item($fbrShown->json(), 'accounting.invoices')['visibility_override']);
+        $this->assertTrue($this->item($fbrShown->json(), 'fbr.invoicing')['visibility_override']);
+        $this->assertFalse($this->item($fbrShown->json(), 'accounting.invoices')['effective_visible']);
+        $this->assertTrue($this->item($fbrShown->json(), 'fbr.invoicing')['effective_visible']);
     }
 
     /** @param array<string, mixed> $response @return array<string, mixed> */
