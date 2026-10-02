@@ -26,6 +26,17 @@ class MigrationIdentifierCompatibilityTest extends TestCase
                 return (object) ['Collation' => 'utf8mb4_nopad_bin'];
             }
 
+            public function affectingStatement($query, $bindings = []): int
+            {
+                if (! str_starts_with($query, 'insert ignore into `permissions`')
+                    || ! in_array('employee.payroll.view', $bindings, true)
+                    || ! in_array('payroll.release', $bindings, true)) {
+                    throw new \LogicException('Static migration audit forbids unexpected database writes.');
+                }
+
+                return 2;
+            }
+
             public function isMaria(): bool
             {
                 return true;

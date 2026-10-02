@@ -18,7 +18,7 @@ class PayrollEntry extends Model
 
     protected function casts(): array
     {
-        return ['base_salary' => 'integer', 'profile_snapshot' => 'array', 'statutory_rule_snapshot' => 'array', 'gross_earnings' => 'integer', 'taxable_earnings' => 'integer', 'employee_deductions' => 'integer', 'employee_contributions' => 'integer', 'tax_amount' => 'integer', 'employer_contributions' => 'integer', 'reimbursements' => 'integer', 'net_pay' => 'integer', 'employer_total_cost' => 'integer'];
+        return ['base_salary' => 'integer', 'profile_snapshot' => 'array', 'statutory_rule_snapshot' => 'array', 'gross_earnings' => 'integer', 'taxable_earnings' => 'integer', 'employee_deductions' => 'integer', 'employee_contributions' => 'integer', 'tax_amount' => 'integer', 'employer_contributions' => 'integer', 'reimbursements' => 'integer', 'net_pay' => 'integer', 'employer_total_cost' => 'integer', 'released_at' => 'datetime'];
     }
 
     public function company(): BelongsTo

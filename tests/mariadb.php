@@ -52,7 +52,7 @@ try {
     }
     if ($mode === 'concurrency') {
         $command .= ' --fail-on-skipped --fail-on-warning --fail-on-phpunit-deprecation --filter '
-            .escapeshellarg('MariaDbConcurrencyTest|MariaDbEmployeeIdentityConcurrencyTest|FbrSubmissionLeaseConcurrencyTest|LegacyImportOwnershipConcurrencyTest|TechnicalIdentifierTest|ClaimGenerationTest|LegacyImportGenerationTest|CertificationDateTimeTest|InvoiceCreationRollbackTest|PakistanFbrDomainTest|MigrationIntegrityTest')
+            .escapeshellarg('MariaDbConcurrencyTest|MariaDbEmployeeIdentityConcurrencyTest|MariaDbPayrollReleaseConcurrencyTest|FbrSubmissionLeaseConcurrencyTest|LegacyImportOwnershipConcurrencyTest|TechnicalIdentifierTest|ClaimGenerationTest|LegacyImportGenerationTest|CertificationDateTimeTest|InvoiceCreationRollbackTest|PakistanFbrDomainTest|MigrationIntegrityTest')
             .' '.escapeshellarg(__DIR__.'/Feature');
     }
     passthru($command, $status);

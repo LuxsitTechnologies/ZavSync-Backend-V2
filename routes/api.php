@@ -53,6 +53,7 @@ use App\Http\Controllers\Api\V1\Crm\CrmReportController;
 use App\Http\Controllers\Api\V1\Crm\CrmScoreController;
 use App\Http\Controllers\Api\V1\Crm\CrmTagController;
 use App\Http\Controllers\Api\V1\EmployeeIdentityController;
+use App\Http\Controllers\Api\V1\EmployeePayrollController;
 use App\Http\Controllers\Api\V1\Fbr\FbrConfigurationController;
 use App\Http\Controllers\Api\V1\Fbr\FbrReferenceDataController;
 use App\Http\Controllers\Api\V1\Fbr\LegacyMigrationController;
@@ -71,6 +72,7 @@ use App\Http\Controllers\Api\V1\Payroll\EmployeePayrollProfileController;
 use App\Http\Controllers\Api\V1\Payroll\PayrollBatchController;
 use App\Http\Controllers\Api\V1\Payroll\PayrollComponentController;
 use App\Http\Controllers\Api\V1\Payroll\PayrollEntryController;
+use App\Http\Controllers\Api\V1\Payroll\PayrollEntryReleaseController;
 use App\Http\Controllers\Api\V1\Payroll\PayrollLiabilityController;
 use App\Http\Controllers\Api\V1\Payroll\PayrollPaymentController;
 use App\Http\Controllers\Api\V1\Payroll\PayrollPeriodController;
@@ -118,6 +120,8 @@ Route::prefix('v1')->group(function (): void {
 
         Route::middleware('company')->group(function (): void {
             Route::get('employee/me', [EmployeeIdentityController::class, 'show'])->name('employee.me');
+            Route::get('employee/payroll', [EmployeePayrollController::class, 'index'])->name('employee.payroll.index');
+            Route::get('employee/payroll/{entry}', [EmployeePayrollController::class, 'show'])->name('employee.payroll.show');
             Route::get('platform/navigation', [NavigationPreferenceController::class, 'index'])->name('platform.navigation.index');
             Route::put('platform/navigation/{item}', [NavigationPreferenceController::class, 'update'])->middleware('throttle:sensitive')->name('platform.navigation.update');
             Route::delete('platform/navigation/{item}', [NavigationPreferenceController::class, 'reset'])->middleware('throttle:sensitive')->name('platform.navigation.reset');
@@ -352,6 +356,7 @@ Route::prefix('v1')->group(function (): void {
             Route::get('payroll/entries/{entry}', [PayrollEntryController::class, 'show'])->name('payroll.entries.show');
             Route::post('payroll/entries/{entry}/adjustments', [PayrollEntryController::class, 'adjust'])->name('payroll.entries.adjust');
             Route::get('payroll/entries/{entry}/payslip', [PayrollEntryController::class, 'payslip'])->name('payroll.entries.payslip');
+            Route::post('payroll/entries/{entry}/release', [PayrollEntryReleaseController::class, 'store'])->name('payroll.entries.release');
             Route::apiResource('payroll/batches', PayrollBatchController::class)->only(['index', 'store', 'show'])->names('payroll.batches');
             Route::get('payroll/payments', [PayrollPaymentController::class, 'index'])->name('payroll.payments.index');
             Route::post('payroll/batches/{batch}/payments', [PayrollPaymentController::class, 'store'])->name('payroll.payments.store');

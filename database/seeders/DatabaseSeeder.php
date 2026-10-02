@@ -81,8 +81,8 @@ class DatabaseSeeder extends Seeder
             'banking.settlements', 'banking.cashflow',
             'budget.view', 'budget.manage', 'budget.submit', 'budget.approve', 'forecast.view', 'forecast.manage',
             'accounting.close.view', 'accounting.period.close', 'accounting.period.reopen', 'accounting.year.close', 'accounting.year.reopen',
-            'employee.self.view', 'employee.links.manage',
-            'payroll.view', 'payroll.manage', 'payroll.calculate', 'payroll.review', 'payroll.approve', 'payroll.post',
+            'employee.self.view', 'employee.links.manage', 'employee.payroll.view',
+            'payroll.view', 'payroll.manage', 'payroll.calculate', 'payroll.review', 'payroll.approve', 'payroll.post', 'payroll.release',
             'payroll.pay', 'payroll.settle-liabilities', 'payroll.reports', 'payroll.configure',
             'crm.view', 'crm.accounts.manage', 'crm.contacts.manage', 'crm.leads.manage', 'crm.deals.manage',
             'crm.activities.manage', 'crm.pipelines.manage', 'crm.import', 'crm.scoring.manage',
@@ -102,7 +102,7 @@ class DatabaseSeeder extends Seeder
             'intelligence.view', 'intelligence.manage', 'intelligence.anomalies.view', 'intelligence.forecasts.view',
             'intelligence.scenarios.manage', 'intelligence.briefings.view', 'intelligence.schedule.manage',
             'intelligence.calendar.manage', 'intelligence.observability.view', 'intelligence.evaluations.manage',
-        ])->map(fn (string $name) => Permission::query()->create(['name' => $name]));
+        ])->map(fn (string $name) => Permission::query()->firstOrCreate(['name' => $name]));
         $role->permissions()->attach($permissions);
         CompanyUser::query()->create(['company_id' => $company->id, 'user_id' => $user->id, 'role_id' => $role->id, 'is_active' => true]);
         CompanySetting::query()->create([
