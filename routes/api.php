@@ -83,6 +83,7 @@ use App\Http\Controllers\Api\V1\Platform\CompanySettingController;
 use App\Http\Controllers\Api\V1\Platform\CompanyUserController;
 use App\Http\Controllers\Api\V1\Platform\DocumentController;
 use App\Http\Controllers\Api\V1\Platform\InvitationController;
+use App\Http\Controllers\Api\V1\Platform\NavigationPreferenceController;
 use App\Http\Controllers\Api\V1\Platform\NotificationController;
 use App\Http\Controllers\Api\V1\Platform\RoleController;
 use App\Http\Controllers\Api\V1\Platform\SecurityController;
@@ -109,6 +110,9 @@ Route::prefix('v1')->group(function (): void {
         Route::post('platform/companies', [CompanyController::class, 'store'])->middleware('throttle:company-create')->name('platform.companies.store');
 
         Route::middleware('company')->group(function (): void {
+            Route::get('platform/navigation', [NavigationPreferenceController::class, 'index'])->name('platform.navigation.index');
+            Route::put('platform/navigation/{item}', [NavigationPreferenceController::class, 'update'])->middleware('throttle:sensitive')->name('platform.navigation.update');
+            Route::delete('platform/navigation/{item}', [NavigationPreferenceController::class, 'reset'])->middleware('throttle:sensitive')->name('platform.navigation.reset');
             Route::get('ai/tools', [AiConversationController::class, 'tools'])->name('ai.tools.index');
             Route::get('ai/conversations', [AiConversationController::class, 'index'])->name('ai.conversations.index');
             Route::post('ai/conversations', [AiConversationController::class, 'store'])->name('ai.conversations.store');

@@ -8,6 +8,7 @@ use App\Models\CompanyUser;
 use App\Models\SecurityEvent;
 use App\Models\User;
 use App\Services\Platform\EntitlementService;
+use App\Services\Platform\NavigationVisibilityService;
 use Illuminate\Auth\Events\PasswordReset;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
@@ -19,7 +20,10 @@ use Illuminate\Validation\ValidationException;
 
 class AuthController extends Controller
 {
-    public function __construct(private readonly EntitlementService $entitlements) {}
+    public function __construct(
+        private readonly EntitlementService $entitlements,
+        private readonly NavigationVisibilityService $navigation,
+    ) {}
 
     public function login(Request $request): JsonResponse
     {
@@ -125,6 +129,7 @@ class AuthController extends Controller
             'currency' => $membership->company->currency, 'timezone' => $membership->company->timezone,
             'roles' => collect([$membership->role])->merge($membership->roles)->filter()->pluck('name')->unique()->values(),
             'permissions' => $permissions, 'modules' => $this->entitlements->enabledModules($companyId),
+            'effective_navigation' => $this->navigation->resolve($companyId, $permissions->all()),
         ];
     }
 }
