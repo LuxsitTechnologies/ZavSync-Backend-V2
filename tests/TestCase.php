@@ -41,11 +41,22 @@ use App\Models\Warehouse;
 use App\Services\Ai\AiChatRequest;
 use App\Services\Ai\AiChatResult;
 use App\Services\Ai\EmbeddingResult;
+use Illuminate\Foundation\Application;
 use Illuminate\Foundation\Testing\TestCase as BaseTestCase;
 use Laravel\Sanctum\Sanctum;
 
 abstract class TestCase extends BaseTestCase
 {
+    public function createApplication(): Application
+    {
+        $app = parent::createApplication();
+        if (defined('ZAVSYNC_MARIADB_CERTIFICATION')) {
+            MariaDbCertification::guard($app);
+        }
+
+        return $app;
+    }
+
     /** @param array<int, string> $permissions @return array{User, Company} */
     protected function actingAsCompanyUser(array $permissions): array
     {
