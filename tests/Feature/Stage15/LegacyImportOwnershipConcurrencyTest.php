@@ -15,11 +15,12 @@ use Illuminate\Support\Facades\Event;
 use Illuminate\Support\Facades\Http;
 use Symfony\Component\HttpKernel\Exception\ConflictHttpException;
 use Tests\Concerns\BuildsLegacyInvoiceSnapshots;
+use Tests\Concerns\ResetsCommittedFixtures;
 use Tests\TestCase;
 
 class LegacyImportOwnershipConcurrencyTest extends TestCase
 {
-    use BuildsLegacyInvoiceSnapshots;
+    use BuildsLegacyInvoiceSnapshots, ResetsCommittedFixtures;
 
     public function test_old_import_worker_failure_cannot_overwrite_a_completed_resume(): void
     {
@@ -198,6 +199,9 @@ class LegacyImportOwnershipConcurrencyTest extends TestCase
             DB::purge($connection);
             config(['database.default' => $originalConnection]);
             unlink($database);
+            if ($mariadb) {
+                $this->resetCommittedFixtures($connection);
+            }
         }
     }
 }

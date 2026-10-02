@@ -10,6 +10,7 @@ use App\Models\User;
 use App\Services\Migration\LegacyInvoiceImportService;
 use Illuminate\Database\Eloquent\ModelNotFoundException;
 use Illuminate\Foundation\Testing\RefreshDatabase;
+use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Event;
 use Illuminate\Support\Facades\Http;
 use Symfony\Component\HttpKernel\Exception\ConflictHttpException;
@@ -19,6 +20,9 @@ use Tests\TestCase;
 class LegacyImportGenerationTest extends TestCase
 {
     use BuildsLegacyInvoiceSnapshots, RefreshDatabase;
+
+    /** @var array<string, int> */
+    private array $firewallCounts = [];
 
     public function test_normal_import_and_completed_replay_keep_generation_one(): void
     {
@@ -130,6 +134,9 @@ class LegacyImportGenerationTest extends TestCase
     {
         Http::preventStrayRequests();
         $this->mock(FbrGateway::class)->shouldNotReceive('submit');
+        foreach (['invoices', 'journals', 'journal_lines', 'customer_payments', 'inventory_movements', 'bank_transactions', 'pakistan_fbr_submission_attempts', 'fbr_submission_attempts'] as $table) {
+            $this->firewallCounts[$table] = DB::table($table)->count();
+        }
 
         return [Company::factory()->create(), User::factory()->create()];
     }
@@ -152,8 +159,8 @@ class LegacyImportGenerationTest extends TestCase
 
     private function firewall(): void
     {
-        foreach (['invoices', 'journals', 'journal_lines', 'customer_payments', 'inventory_movements', 'bank_transactions', 'pakistan_fbr_submission_attempts', 'fbr_submission_attempts'] as $table) {
-            $this->assertDatabaseCount($table, 0);
+        foreach ($this->firewallCounts as $table => $count) {
+            $this->assertSame($count, DB::table($table)->count(), "{$table}: historical import must not add accounting or submission records.");
         }
         Http::assertNothingSent();
     }

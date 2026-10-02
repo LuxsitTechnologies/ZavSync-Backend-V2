@@ -21,10 +21,13 @@ use App\Services\Fbr\FbrSubmissionResult;
 use App\Services\Fbr\PakistanFbrSubmissionService;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Http;
+use Tests\Concerns\ResetsCommittedFixtures;
 use Tests\TestCase;
 
 class FbrSubmissionLeaseConcurrencyTest extends TestCase
 {
+    use ResetsCommittedFixtures;
+
     public function test_expired_worker_failure_cannot_overwrite_a_newer_accepted_claim(): void
     {
         $this->assertStaleCompletionIsFenced(false);
@@ -190,6 +193,9 @@ class FbrSubmissionLeaseConcurrencyTest extends TestCase
             config(['database.default' => $originalConnection]);
             $this->travelBack();
             unlink($database);
+            if ($mariadb) {
+                $this->resetCommittedFixtures($connection);
+            }
         }
     }
 }

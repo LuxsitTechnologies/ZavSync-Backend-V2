@@ -10,6 +10,7 @@ use App\Models\User;
 use App\Services\Accounting\InvoiceService;
 use App\Services\Fbr\PakistanFbrInvoiceService;
 use Illuminate\Foundation\Testing\RefreshDatabase;
+use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Event;
 use PHPUnit\Framework\Attributes\DataProvider;
 use Tests\TestCase;
@@ -34,6 +35,10 @@ class InvoiceCreationRollbackTest extends TestCase
             'buyer_snapshot' => ['name' => 'Synthetic buyer'],
             'lines' => [['description' => 'Synthetic service', 'quantity_milli' => 1000, 'unit' => 'unit', 'unit_price' => 10000, 'tax_rate_bps' => 1800, 'sales_type' => 'Goods']]];
         $service = $native ? InvoiceService::class : PakistanFbrInvoiceService::class;
+        $before = [];
+        foreach (['invoices', 'invoice_lines', 'pakistan_fbr_invoices', 'pakistan_fbr_invoice_lines', 'journals', 'journal_lines'] as $table) {
+            $before[$table] = DB::table($table)->count();
+        }
         $event = 'eloquent.created: '.($native ? InvoiceLine::class : PakistanFbrInvoiceLine::class);
         Event::listen($event, static function (): void {
             throw new \RuntimeException('Injected line failure');
@@ -46,9 +51,10 @@ class InvoiceCreationRollbackTest extends TestCase
         } finally {
             Event::forget($event);
         }
-        foreach (['invoices', 'invoice_lines', 'pakistan_fbr_invoices', 'pakistan_fbr_invoice_lines', 'journals', 'journal_lines'] as $table) {
-            $this->assertDatabaseCount($table, 0);
+        foreach ($before as $table => $count) {
+            $this->assertSame($count, DB::table($table)->count(), "{$table}: injected failure must leave the pre-operation count unchanged.");
         }
+        $this->assertDatabaseMissing($native ? 'invoices' : 'pakistan_fbr_invoices', ['company_id' => $company->id, 'creation_idempotency_key' => 'rollback-key']);
         $invoice = app($service)->create($company->id, $user, $data, 'rollback-key');
         $this->assertSame(1, $invoice->sequence);
         $this->assertSame(1, $invoice->lines()->count());

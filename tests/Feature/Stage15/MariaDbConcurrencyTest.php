@@ -28,12 +28,15 @@ use PHPUnit\Framework\Attributes\DataProvider;
 use Symfony\Component\HttpKernel\Exception\ConflictHttpException;
 use Tests\Concerns\BuildsLegacyInvoiceSnapshots;
 use Tests\Concerns\CoordinatesDatabaseWorkers;
+use Tests\Concerns\ResetsCommittedFixtures;
 use Tests\MariaDbCertification;
 use Tests\TestCase;
 
 class MariaDbConcurrencyTest extends TestCase
 {
-    use BuildsLegacyInvoiceSnapshots, CoordinatesDatabaseWorkers;
+    use BuildsLegacyInvoiceSnapshots, CoordinatesDatabaseWorkers, ResetsCommittedFixtures;
+
+    private bool $databaseWasReset = false;
 
     protected function setUp(): void
     {
@@ -43,6 +46,7 @@ class MariaDbConcurrencyTest extends TestCase
         }
         $this->assertTrue(function_exists('pcntl_fork') && function_exists('posix_kill') && function_exists('stream_socket_pair'), 'Concurrency certification requires pcntl, posix and Unix sockets.');
         MariaDbCertification::guard($this->app);
+        $this->databaseWasReset = true;
         $this->artisan('migrate:fresh', ['--database' => 'mysql', '--no-interaction' => true])->assertSuccessful();
         Http::preventStrayRequests();
         $this->mock(FbrGateway::class)->shouldNotReceive('submit');
@@ -51,7 +55,13 @@ class MariaDbConcurrencyTest extends TestCase
     protected function tearDown(): void
     {
         $this->stopDatabaseWorkers();
-        parent::tearDown();
+        try {
+            if ($this->databaseWasReset) {
+                $this->resetCommittedFixtures('mysql');
+            }
+        } finally {
+            parent::tearDown();
+        }
     }
 
     /** @return array<string, array{bool, bool, bool}> */
