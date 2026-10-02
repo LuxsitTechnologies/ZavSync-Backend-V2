@@ -14,6 +14,8 @@ use Symfony\Component\HttpKernel\Exception\ConflictHttpException;
 
 class PakistanFbrInvoiceService
 {
+    private const MAX_MONEY = 9007199254740991;
+
     public function __construct(private readonly InvoiceCalculationService $calculator, private readonly AuditService $audit) {}
 
     /** @param array<string, mixed> $data */
@@ -71,19 +73,63 @@ class PakistanFbrInvoiceService
     private function calculate(array $data): array
     {
         $input = array_map(fn (array $line): array => [...$line, 'sales_type' => $data['sale_type']], $data['lines']);
-        $calculated = $this->calculator->calculate($input);
+        $calculationInput = array_map(function (array $line): array {
+            if ((int) ($line['sales_tax'] ?? 0) > 0) {
+                $line['tax_rate_bps'] = 0;
+            }
+
+            return $line;
+        }, $input);
+        $calculated = $this->calculator->calculate($calculationInput);
         $lines = [];
+        $totals = $calculated['totals'];
         foreach ($calculated['lines'] as $index => $line) {
+            $explicitSalesTax = (int) ($input[$index]['sales_tax'] ?? 0);
+            if ($explicitSalesTax > 0) {
+                $totals['sales_tax'] = $this->checkedSum([$totals['sales_tax'], -$line['tax_amount'], $explicitSalesTax], "lines.$index.sales_tax");
+                $line['tax_amount'] = $explicitSalesTax;
+                $line['tax_rate_bps'] = (int) $input[$index]['tax_rate_bps'];
+            }
+            foreach (['extra_tax' => ['other_tax_amount', 'other_tax'], 'further_tax' => ['advance_tax_amount', 'advance_tax'], 'st_withheld' => ['withholding_tax_amount', 'withholding_tax']] as $field => [$lineField, $totalField]) {
+                if (! array_key_exists($field, $input[$index])) {
+                    continue;
+                }
+                if ((int) ($input[$index][match ($field) {
+                    'extra_tax' => 'other_tax_rate_bps', 'further_tax' => 'advance_tax_rate_bps', default => 'withholding_tax_rate_bps',
+                }] ?? 0) !== 0) {
+                    throw ValidationException::withMessages(["lines.$index.$field" => 'An explicit tax amount cannot also specify its rate.']);
+                }
+                $totals[$totalField] = $this->checkedSum([$totals[$totalField], -$line[$lineField], (int) $input[$index][$field]], "lines.$index.$field");
+                $line[$lineField] = (int) $input[$index][$field];
+            }
+            $line['total'] = $this->checkedSum([
+                $line['taxable_amount'], $line['tax_amount'], $line['other_tax_amount'], $line['advance_tax_amount'],
+            ], "lines.$index");
             $lines[] = [
                 ...Arr::except($line, ['item_id', 'item_name', 'tax_metadata']),
                 ...Arr::only($input[$index], ['hs_code', 'fbr_rate_id', 'sro_schedule_id', 'sro_item_id']),
             ];
         }
+        $totals['total'] = $this->checkedSum(array_column($lines, 'total'), 'lines');
         $header = [
             ...Arr::only($data, ['customer_id', 'invoice_date', 'due_date', 'invoice_type', 'sale_type', 'origin_province', 'destination_province', 'buyer_snapshot', 'notes']),
-            ...$calculated['totals'], 'currency' => 'PKR',
+            ...$totals, 'currency' => 'PKR',
         ];
 
         return [$header, $lines];
+    }
+
+    /** @param array<int, int> $values */
+    private function checkedSum(array $values, string $field): int
+    {
+        $sum = 0;
+        foreach ($values as $value) {
+            if (($value > 0 && $sum > self::MAX_MONEY - $value) || ($value < 0 && $sum < -self::MAX_MONEY - $value)) {
+                throw ValidationException::withMessages([$field => 'The calculated amount exceeds the supported minor-unit range.']);
+            }
+            $sum += $value;
+        }
+
+        return $sum;
     }
 }

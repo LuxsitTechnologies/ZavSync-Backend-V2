@@ -17,6 +17,7 @@ class PakistanFbrInvoiceResource extends JsonResource
             'document_state' => $this->document_state, 'is_historical' => $this->is_historical,
             'accounting_integration' => 'NOT_INTEGRATED', 'buyer_snapshot' => $this->buyer_snapshot,
             'invoice_type' => $this->invoice_type, 'sale_type' => $this->sale_type,
+            'scenario_id' => $this->scenarioId(),
             'origin_province' => $this->origin_province, 'destination_province' => $this->destination_province,
             'currency' => $this->currency, 'subtotal' => $this->subtotal, 'discount' => $this->discount,
             'taxable_amount' => $this->taxable_amount, 'sales_tax' => $this->sales_tax,
@@ -27,6 +28,8 @@ class PakistanFbrInvoiceResource extends JsonResource
             'editable' => $this->isEditable(), 'submission_blocked' => $this->is_historical,
             'capabilities' => [
                 'accounting_posting' => false, 'payments' => false, 'amendment' => false, 'cancellation' => false,
+                'retry_recovery' => ! $this->is_historical && $this->fbr_reference_number === null
+                    && in_array($this->fbr_status->value, ['pending', 'failed'], true),
                 'certified_print_qr' => false, 'scenario_fed_236g_236h' => false,
                 'print_data' => true, 'regulatory_print_status' => 'STAGING_CERTIFICATION_REQUIRED',
                 'qr_content' => null, 'buyer_registration_check' => false, 'reference_sync' => false,
@@ -41,12 +44,13 @@ class PakistanFbrInvoiceResource extends JsonResource
                 'original_company_id' => $this->legacy_original_company_id, 'import_run_id' => $this->legacy_import_run_id,
                 'original_timestamps' => $this->legacy_original_timestamps, 'original_financial_values' => $this->legacy_original_financial_values,
             ]),
-            'lines' => $this->whenLoaded('lines', fn () => $this->lines->map(fn ($line): array => $line->only([
+            'lines' => $this->whenLoaded('lines', fn () => $this->lines->map(fn ($line): array => [...$line->only([
                 'id', 'position', 'description', 'hs_code', 'quantity_milli', 'unit', 'unit_price',
                 'subtotal', 'discount', 'taxable_amount', 'tax_rate_bps', 'fbr_rate_id', 'tax_amount',
                 'other_tax_rate_bps', 'other_tax_amount', 'advance_tax_rate_bps', 'advance_tax_amount',
                 'withholding_tax_rate_bps', 'withholding_tax_amount', 'sro_schedule_id', 'sro_item_id', 'total', 'sales_type',
-            ]))),
+            ]), 'sales_tax' => $line->tax_amount, 'extra_tax' => $line->other_tax_amount,
+                'further_tax' => $line->advance_tax_amount, 'st_withheld' => $line->withholding_tax_amount])),
             'created_at' => $this->created_at?->toISOString(), 'updated_at' => $this->updated_at?->toISOString(),
         ];
     }

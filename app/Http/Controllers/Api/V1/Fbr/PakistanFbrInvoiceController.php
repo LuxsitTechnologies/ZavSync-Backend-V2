@@ -68,6 +68,17 @@ class PakistanFbrInvoiceController extends Controller
         }
     }
 
+    public function retry(Request $request, string $invoice): PakistanFbrInvoiceResource|JsonResponse
+    {
+        $companyId = $this->authorize($request, 'pakistan_fbr.submit');
+        $model = PakistanFbrInvoice::query()->where('company_id', $companyId)->findOrFail($invoice);
+        try {
+            return new PakistanFbrInvoiceResource($this->submissions->retry($companyId, $request->user(), $model));
+        } catch (FbrUnavailableException $exception) {
+            return response()->json(['message' => $exception->getMessage(), 'error_code' => 'FBR_UNAVAILABLE', 'errors' => ['fbr' => [$exception->getMessage()]]], 503);
+        }
+    }
+
     public function attempts(Request $request, string $invoice): JsonResponse
     {
         $companyId = $this->authorize($request, 'pakistan_fbr.view');

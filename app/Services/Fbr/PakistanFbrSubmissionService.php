@@ -24,6 +24,26 @@ class PakistanFbrSubmissionService
         private readonly AuditService $audit,
     ) {}
 
+    public function retry(string $companyId, User $user, PakistanFbrInvoice $invoice): PakistanFbrInvoice
+    {
+        $key = DB::transaction(function () use ($companyId, $invoice): string {
+            $document = PakistanFbrInvoice::query()->where('company_id', $companyId)->lockForUpdate()->findOrFail($invoice->id);
+            if ($document->is_historical || $document->fbr_reference_number !== null || in_array($document->fbr_status, [FbrSubmissionStatus::Accepted, FbrSubmissionStatus::Submitted], true)) {
+                throw ValidationException::withMessages(['invoice' => 'This FBR Invoice cannot be retried.']);
+            }
+            $attempt = $document->fbrAttempts()->where('company_id', $companyId)
+                ->whereIn('status', [FbrSubmissionStatus::Pending, FbrSubmissionStatus::Failed])
+                ->orderByDesc('created_at')->orderByDesc('id')->lockForUpdate()->first();
+            if ($attempt === null) {
+                throw ValidationException::withMessages(['invoice' => 'No unresolved FBR submission exists to retry.']);
+            }
+
+            return $attempt->idempotency_key;
+        });
+
+        return $this->submit($companyId, $user, $invoice, $key);
+    }
+
     public function submit(string $companyId, User $user, PakistanFbrInvoice $invoice, string $key): PakistanFbrInvoice
     {
         [$attempt, $payload, $context, $generation] = DB::transaction(function () use ($companyId, $user, $invoice, $key): array {

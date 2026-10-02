@@ -38,6 +38,16 @@ class FbrSubmissionLeaseConcurrencyTest extends TestCase
         $this->assertStaleCompletionIsFenced(true);
     }
 
+    public function test_server_selected_retry_fences_stale_worker_failure(): void
+    {
+        $this->assertStaleCompletionIsFenced(false, false, true);
+    }
+
+    public function test_server_selected_retry_fences_stale_worker_success(): void
+    {
+        $this->assertStaleCompletionIsFenced(true, false, true);
+    }
+
     public function test_native_accounting_fbr_expired_worker_cannot_overwrite_a_newer_accepted_claim(): void
     {
         $this->assertStaleCompletionIsFenced(false, true);
@@ -48,7 +58,7 @@ class FbrSubmissionLeaseConcurrencyTest extends TestCase
         $this->assertStaleCompletionIsFenced(true, true);
     }
 
-    private function assertStaleCompletionIsFenced(bool $staleSuccess, bool $nativeAccounting = false): void
+    private function assertStaleCompletionIsFenced(bool $staleSuccess, bool $nativeAccounting = false, bool $serverRetry = false): void
     {
         if (! function_exists('pcntl_fork') || ! function_exists('stream_socket_pair') || ! function_exists('posix_kill')) {
             $this->markTestSkipped('Local two-process reproduction requires pcntl, posix and Unix sockets.');
@@ -154,7 +164,9 @@ class FbrSubmissionLeaseConcurrencyTest extends TestCase
                 }
             };
             $this->app->instance(FbrGateway::class, $gateway);
-            $newer = app($service)->submit($invoice->company_id, $user, $invoice, 'lease-retry');
+            $newer = $serverRetry
+                ? app(PakistanFbrSubmissionService::class)->retry($invoice->company_id, $user, $invoice)
+                : app($service)->submit($invoice->company_id, $user, $invoice, 'lease-retry');
             $this->assertSame(FbrSubmissionStatus::Accepted, $newer->fbr_status);
             $this->assertSame('NEWER-CLAIM-ACCEPTED', $newer->fbr_reference_number);
             $this->assertSame(1, $gateway->calls);

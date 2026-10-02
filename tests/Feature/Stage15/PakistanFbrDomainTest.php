@@ -7,14 +7,17 @@ use App\Enums\FbrSubmissionStatus;
 use App\Exceptions\FbrUnavailableException;
 use App\Models\FbrCompanyConfiguration;
 use App\Models\Invoice;
+use App\Models\MigrationException;
 use App\Models\PakistanFbrInvoice;
 use App\Models\PakistanFbrInvoiceLine;
 use App\Models\PakistanFbrSubmissionAttempt;
+use App\Services\Accounting\InvoiceCalculationService;
 use App\Services\Fbr\FbrSubmissionContext;
 use App\Services\Fbr\FbrSubmissionResult;
 use App\Services\Fbr\PakistanFbrPayloadMapper;
 use App\Services\Migration\LegacyInvoiceImportService;
 use Illuminate\Foundation\Testing\RefreshDatabase;
+use Laravel\Sanctum\Sanctum;
 use Tests\Concerns\BuildsLegacyInvoiceSnapshots;
 use Tests\TestCase;
 
@@ -44,6 +47,154 @@ class PakistanFbrDomainTest extends TestCase
         $this->postJson("/api/v1/accounting/invoices/{$id}/post", [], $headers)->assertNotFound();
         $this->assertDatabaseCount('pakistan_fbr_invoices', 1);
         $this->assertDatabaseCount('pakistan_fbr_invoice_lines', 1);
+        $this->assertNoAccountingEffects();
+    }
+
+    public function test_explicit_tax_amounts_are_exact_and_withholding_does_not_reduce_new_fbr_total(): void
+    {
+        $context = $this->context();
+        $payload = $this->payload();
+        $payload['lines'][0]['unit_price'] = 100000;
+        $payload['lines'][0]['sales_tax'] = 18001;
+        $payload['lines'][0]['extra_tax'] = 1;
+        $payload['lines'][0]['further_tax'] = 200;
+        $payload['lines'][0]['st_withheld'] = 500;
+
+        $response = $this->postJson('/api/v1/pakistan-fbr/invoices', $payload, [
+            'X-Company-Id' => $context['company']->id, 'Idempotency-Key' => 'explicit-tax',
+        ])->assertCreated()->assertJsonPath('subtotal', 100000)->assertJsonPath('sales_tax', 18001)
+            ->assertJsonPath('extra_tax', 1)->assertJsonPath('further_tax', 200)
+            ->assertJsonPath('withholding_tax', 500)->assertJsonPath('total', 118202)
+            ->assertJsonPath('lines.0.total', 118202)->assertJsonPath('lines.0.tax_amount', 18001)
+            ->assertJsonPath('lines.0.sales_tax', 18001)
+            ->assertJsonPath('lines.0.tax_rate_bps', 1800)->assertJsonPath('lines.0.fbr_rate_id', '18%')
+            ->assertJsonPath('lines.0.other_tax_amount', 1)
+            ->assertJsonPath('lines.0.advance_tax_amount', 200)->assertJsonPath('lines.0.withholding_tax_amount', 500)
+            ->assertJsonPath('lines.0.extra_tax', 1)->assertJsonPath('lines.0.further_tax', 200)
+            ->assertJsonPath('lines.0.st_withheld', 500);
+
+        $this->assertDatabaseHas('pakistan_fbr_invoices', ['id' => $response->json('id'), 'total' => 118202, 'withholding_tax' => 500]);
+        $configuration = FbrCompanyConfiguration::factory()->for($context['company'])->create(['updated_by' => $context['user']->id]);
+        $mapped = app(PakistanFbrPayloadMapper::class)->map(PakistanFbrInvoice::query()->with('lines')->findOrFail($response->json('id')), $configuration);
+        $this->assertSame('180.01', $mapped['items'][0]['salesTaxApplicable']);
+        $this->assertSame('18%', $mapped['items'][0]['rate']);
+        $this->assertSame('0.01', $mapped['items'][0]['extraTax']);
+        $this->assertSame('2.00', $mapped['items'][0]['furtherTax']);
+        $this->assertSame('5.00', $mapped['items'][0]['salesTaxWithheldAtSource']);
+        $this->assertNoAccountingEffects();
+    }
+
+    public function test_positive_one_paisa_sales_tax_overrides_rate_and_zero_or_absent_uses_rate(): void
+    {
+        $context = $this->context();
+        $headers = ['X-Company-Id' => $context['company']->id, 'Idempotency-Key' => 'one-paisa-sales-tax'];
+        $payload = $this->payload();
+        $payload['lines'][0]['sales_tax'] = 1;
+
+        $this->postJson('/api/v1/pakistan-fbr/invoices', $payload, $headers)
+            ->assertCreated()->assertJsonPath('sales_tax', 1)->assertJsonPath('total', 10001)
+            ->assertJsonPath('lines.0.tax_rate_bps', 1800);
+
+        $payload['lines'][0]['unit_price'] = 9007199254740000;
+        $headers['Idempotency-Key'] = 'large-safe-sales-tax';
+        $this->postJson('/api/v1/pakistan-fbr/invoices', $payload, $headers)
+            ->assertCreated()->assertJsonPath('sales_tax', 1)->assertJsonPath('total', 9007199254740001)
+            ->assertJsonPath('lines.0.tax_rate_bps', 1800);
+        $payload['lines'][0]['unit_price'] = 10000;
+
+        $payload['lines'][0]['sales_tax'] = 0;
+        $headers['Idempotency-Key'] = 'zero-sales-tax';
+        $this->postJson('/api/v1/pakistan-fbr/invoices', $payload, $headers)
+            ->assertCreated()->assertJsonPath('sales_tax', 1800)->assertJsonPath('total', 11800);
+
+        $payload['lines'][0]['sales_tax'] = null;
+        $headers['Idempotency-Key'] = 'null-sales-tax';
+        $this->postJson('/api/v1/pakistan-fbr/invoices', $payload, $headers)
+            ->assertCreated()->assertJsonPath('sales_tax', 1800)->assertJsonPath('total', 11800);
+
+        unset($payload['lines'][0]['sales_tax']);
+        $headers['Idempotency-Key'] = 'absent-sales-tax';
+        $this->postJson('/api/v1/pakistan-fbr/invoices', $payload, $headers)
+            ->assertCreated()->assertJsonPath('sales_tax', 1800)->assertJsonPath('total', 11800);
+
+        $payload['lines'][0]['sales_tax'] = 9007199254740991;
+        $headers['Idempotency-Key'] = 'overflow-sales-tax';
+        $this->postJson('/api/v1/pakistan-fbr/invoices', $payload, $headers)->assertUnprocessable();
+        $this->assertDatabaseCount('pakistan_fbr_invoices', 5);
+        $this->assertNoAccountingEffects();
+    }
+
+    public function test_native_accounting_calculator_retains_withholding_payable_semantics(): void
+    {
+        $calculated = app(InvoiceCalculationService::class)->calculate([[
+            'description' => 'Native accounting line', 'quantity_milli' => 1000, 'unit' => 'unit',
+            'unit_price' => 10000, 'tax_rate_bps' => 1800, 'other_tax_rate_bps' => 0,
+            'advance_tax_rate_bps' => 0, 'withholding_tax_rate_bps' => 500, 'sales_type' => 'standard',
+        ]]);
+
+        $this->assertSame(11300, $calculated['totals']['total']);
+        $this->assertSame(500, $calculated['totals']['withholding_tax']);
+    }
+
+    public function test_explicit_zero_tax_and_large_totals_are_exact_while_overflow_and_ambiguous_rates_are_rejected(): void
+    {
+        $context = $this->context();
+        $headers = ['X-Company-Id' => $context['company']->id, 'Idempotency-Key' => 'zero-tax'];
+        $payload = $this->payload();
+        $payload['lines'][0]['extra_tax'] = 0;
+        $payload['lines'][0]['further_tax'] = 0;
+        $payload['lines'][0]['st_withheld'] = 0;
+        $this->postJson('/api/v1/pakistan-fbr/invoices', $payload, $headers)->assertCreated()->assertJsonPath('total', 11800);
+
+        $payload['lines'][0]['extra_tax'] = 9007199254730000;
+        $payload['lines'][0]['tax_rate_bps'] = 0;
+        $headers['Idempotency-Key'] = 'large-tax';
+        $this->postJson('/api/v1/pakistan-fbr/invoices', $payload, $headers)->assertCreated()->assertJsonPath('total', 9007199254740000);
+
+        $payload['lines'][0]['extra_tax'] = 9007199254740991;
+        $headers['Idempotency-Key'] = 'overflow-tax';
+        $this->postJson('/api/v1/pakistan-fbr/invoices', $payload, $headers)->assertUnprocessable();
+
+        $payload['lines'][0]['extra_tax'] = 1;
+        $payload['lines'][0]['other_tax_rate_bps'] = 100;
+        $headers['Idempotency-Key'] = 'ambiguous-tax';
+        $this->postJson('/api/v1/pakistan-fbr/invoices', $payload, $headers)->assertUnprocessable()->assertJsonValidationErrors(['lines.0.extra_tax']);
+        $this->assertDatabaseCount('pakistan_fbr_invoices', 2);
+        $this->assertNoAccountingEffects();
+    }
+
+    public function test_existing_rate_inputs_remain_supported_without_subtracting_withholding(): void
+    {
+        $context = $this->context();
+        $payload = $this->payload();
+        $payload['lines'][0]['other_tax_rate_bps'] = 100;
+        $payload['lines'][0]['advance_tax_rate_bps'] = 200;
+        $payload['lines'][0]['withholding_tax_rate_bps'] = 500;
+
+        $this->postJson('/api/v1/pakistan-fbr/invoices', $payload, [
+            'X-Company-Id' => $context['company']->id, 'Idempotency-Key' => 'rate-compatibility',
+        ])->assertCreated()->assertJsonPath('extra_tax', 100)->assertJsonPath('further_tax', 200)
+            ->assertJsonPath('withholding_tax', 500)->assertJsonPath('total', 12100);
+        $this->assertNoAccountingEffects();
+    }
+
+    public function test_scenario_is_derived_from_buyer_type_and_cannot_be_selected_by_client(): void
+    {
+        $context = $this->context();
+        $configuration = FbrCompanyConfiguration::factory()->for($context['company'])->create(['updated_by' => $context['user']->id]);
+        foreach (['Registered' => 'SN001', 'Unregistered' => 'SN002'] as $type => $scenario) {
+            $payload = $this->payload();
+            $payload['buyer_snapshot']['type'] = $type;
+            $payload['scenario_id'] = 'UNTRUSTED';
+            $headers = ['X-Company-Id' => $context['company']->id, 'Idempotency-Key' => 'scenario-'.$type];
+            $response = $this->postJson('/api/v1/pakistan-fbr/invoices', $payload, $headers)->assertCreated()->assertJsonPath('scenario_id', $scenario);
+            $invoice = PakistanFbrInvoice::query()->findOrFail($response->json('id'));
+            $this->assertSame($scenario, app(PakistanFbrPayloadMapper::class)->map($invoice->load('lines'), $configuration)['scenarioId']);
+        }
+        $invalid = $this->payload();
+        $invalid['buyer_snapshot']['type'] = 'Unknown';
+        $this->postJson('/api/v1/pakistan-fbr/invoices', $invalid, ['X-Company-Id' => $context['company']->id, 'Idempotency-Key' => 'invalid-scenario'])
+            ->assertUnprocessable()->assertJsonValidationErrors(['buyer_snapshot.type']);
         $this->assertNoAccountingEffects();
     }
 
@@ -82,6 +233,122 @@ class PakistanFbrDomainTest extends TestCase
         $this->assertSame($gateway->keys[0], $gateway->keys[1]);
         $this->assertSame(1, PakistanFbrSubmissionAttempt::query()->count());
         $this->assertStringNotContainsString('never-store-this', PakistanFbrSubmissionAttempt::query()->sole()->toJson());
+        $this->assertNoAccountingEffects();
+    }
+
+    public function test_server_retry_recovers_original_provider_identity_without_browser_key(): void
+    {
+        $context = $this->context();
+        $invoice = $this->draft($context);
+        $gateway = $this->gateway(true);
+        $headers = ['X-Company-Id' => $context['company']->id, 'Idempotency-Key' => 'original-browser-key'];
+        $this->postJson("/api/v1/pakistan-fbr/invoices/{$invoice->id}/submit", [], $headers)->assertServiceUnavailable();
+
+        Sanctum::actingAs($context['user']);
+        $this->postJson("/api/v1/pakistan-fbr/invoices/{$invoice->id}/retry", [], ['X-Company-Id' => $context['company']->id])
+            ->assertOk()->assertJsonPath('fbr_status', 'accepted')->assertJsonPath('fbr_reference_number', 'PK-ACCEPTED')
+            ->assertJsonPath('capabilities.retry_recovery', false);
+        $this->assertSame(2, $gateway->calls);
+        $this->assertSame($gateway->keys[0], $gateway->keys[1]);
+        $this->assertDatabaseCount('pakistan_fbr_submission_attempts', 1);
+        $this->assertSame(2, PakistanFbrSubmissionAttempt::query()->sole()->claim_generation);
+        $this->postJson("/api/v1/pakistan-fbr/invoices/{$invoice->id}/retry", [], ['X-Company-Id' => $context['company']->id])->assertUnprocessable();
+        $this->assertNoAccountingEffects();
+    }
+
+    public function test_server_retry_respects_active_lease_and_reclaims_only_after_expiry(): void
+    {
+        $context = $this->context();
+        $invoice = $this->draft($context);
+        $gateway = $this->gateway();
+        $configuration = FbrCompanyConfiguration::query()->where('company_id', $context['company']->id)->sole();
+        $payload = app(PakistanFbrPayloadMapper::class)->map($invoice->load('lines'), $configuration);
+        $attempt = PakistanFbrSubmissionAttempt::factory()->for($invoice, 'invoice')->create([
+            'company_id' => $context['company']->id, 'submitted_by' => $context['user']->id,
+            'idempotency_key' => 'original-lease-key', 'status' => FbrSubmissionStatus::Pending,
+            'payload_hash' => hash('sha256', json_encode($payload, JSON_THROW_ON_ERROR)), 'claim_generation' => 1,
+        ]);
+        $invoice->update(['fbr_status' => FbrSubmissionStatus::Pending]);
+        $url = "/api/v1/pakistan-fbr/invoices/{$invoice->id}/retry";
+        $this->postJson($url, [], ['X-Company-Id' => $context['company']->id])->assertOk()->assertJsonPath('fbr_status', 'pending');
+        $this->assertSame(0, $gateway->calls);
+        $this->assertSame(1, $attempt->fresh()->claim_generation);
+
+        $attempt->forceFill(['updated_at' => now()->subMinutes(3)])->save();
+        $this->postJson($url, [], ['X-Company-Id' => $context['company']->id])->assertOk()->assertJsonPath('fbr_status', 'accepted');
+        $this->assertSame(1, $gateway->calls);
+        $this->assertSame('pkfbr:'.$invoice->id.':original-lease-key', $gateway->keys[0]);
+        $this->assertSame(2, $attempt->fresh()->claim_generation);
+        $this->assertNoAccountingEffects();
+    }
+
+    public function test_server_retry_rejects_changed_payload_and_configuration(): void
+    {
+        $context = $this->context();
+        $invoice = $this->draft($context);
+        $gateway = $this->gateway(true);
+        $headers = ['X-Company-Id' => $context['company']->id, 'Idempotency-Key' => 'retry-hash'];
+        $url = "/api/v1/pakistan-fbr/invoices/{$invoice->id}/retry";
+        $this->postJson("/api/v1/pakistan-fbr/invoices/{$invoice->id}/submit", [], $headers)->assertServiceUnavailable();
+        $configuration = FbrCompanyConfiguration::query()->where('company_id', $context['company']->id)->sole();
+        $originalSeller = $configuration->seller_business_name;
+        $configuration->update(['seller_business_name' => 'Changed seller']);
+        $this->postJson($url, [], ['X-Company-Id' => $context['company']->id])->assertConflict();
+        $configuration->update(['seller_business_name' => $originalSeller]);
+        $invoice->update(['invoice_type' => 'Changed type']);
+        $this->postJson($url, [], ['X-Company-Id' => $context['company']->id])->assertConflict();
+        $invoice->update(['invoice_type' => 'Sale Invoice']);
+        $this->postJson($url, [], ['X-Company-Id' => $context['company']->id])->assertOk();
+        $this->assertSame(2, $gateway->calls);
+        $this->assertNoAccountingEffects();
+    }
+
+    public function test_server_retry_is_permission_and_tenant_scoped_and_rejects_historical_documents(): void
+    {
+        $owner = $this->context();
+        $invoice = $this->draft($owner);
+        $gateway = $this->gateway(true);
+        $this->postJson("/api/v1/pakistan-fbr/invoices/{$invoice->id}/submit", [], [
+            'X-Company-Id' => $owner['company']->id, 'Idempotency-Key' => 'secured-retry',
+        ])->assertServiceUnavailable();
+
+        $outsider = $this->context();
+        $this->postJson("/api/v1/pakistan-fbr/invoices/{$invoice->id}/retry", [], ['X-Company-Id' => $outsider['company']->id])->assertNotFound();
+        $restricted = $this->stage3AccountingContext(['pakistan_fbr.view']);
+        $this->postJson("/api/v1/pakistan-fbr/invoices/{$invoice->id}/retry", [], ['X-Company-Id' => $restricted['company']->id])->assertForbidden();
+        Sanctum::actingAs($owner['user']);
+        app(LegacyInvoiceImportService::class)->execute($this->legacySnapshot(), $owner['company'], $owner['user'], '4', hash('sha256', 'historical-retry'), 'historical-retry.json');
+        $historical = PakistanFbrInvoice::query()->where('is_historical', true)->sole();
+        $this->postJson("/api/v1/pakistan-fbr/invoices/{$historical->id}/retry", [], ['X-Company-Id' => $owner['company']->id])->assertUnprocessable();
+        $this->assertSame(1, $gateway->calls);
+        $this->assertNoAccountingEffects();
+    }
+
+    public function test_historical_tax_amounts_and_disagreeing_header_are_preserved_with_exception(): void
+    {
+        $context = $this->context();
+        $snapshot = $this->legacySnapshot();
+        $snapshot['invoice_items'][0]['sales_tax'] = '18.01';
+        $snapshot['invoice_items'][0]['extra_tax'] = '0.01';
+        $snapshot['invoice_items'][0]['further_tax'] = '2.00';
+        $snapshot['invoice_items'][0]['st_withheld'] = '5.00';
+        $snapshot['invoice_items'][0]['amount'] = '120.02';
+
+        app(LegacyInvoiceImportService::class)->execute($snapshot, $context['company'], $context['user'], '4', hash('sha256', 'historical-tax-discrepancy'), 'historical-tax.json');
+
+        $invoice = PakistanFbrInvoice::query()->with('lines')->sole();
+        $this->assertSame(11800, $invoice->total);
+        $this->assertSame(1800, $invoice->sales_tax);
+        $this->assertSame(1801, $invoice->lines->sole()->tax_amount);
+        $this->assertSame('18.01', $invoice->lines->sole()->legacy_original_values['sales_tax']);
+        $this->assertSame(12002, $invoice->lines->sole()->total);
+        $this->assertSame(1, $invoice->lines->sole()->other_tax_amount);
+        $this->assertSame(200, $invoice->lines->sole()->advance_tax_amount);
+        $this->assertSame(500, $invoice->lines->sole()->withholding_tax_amount);
+        $this->assertSame('118.00', $invoice->legacy_original_financial_values['total_amount']);
+        $this->assertSame('SN001', $invoice->scenarioId());
+        $this->assertSame(1, MigrationException::query()->where('exception_code', 'FINANCIAL_TAX_MISMATCH')->count());
+        $this->assertSame(1, MigrationException::query()->where('exception_code', 'FINANCIAL_TOTAL_MISMATCH')->count());
         $this->assertNoAccountingEffects();
     }
 

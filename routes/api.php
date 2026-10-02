@@ -219,6 +219,7 @@ Route::prefix('v1')->group(function (): void {
             Route::get('pakistan-fbr/invoices/{invoice}', [PakistanFbrInvoiceController::class, 'show'])->name('pakistan-fbr.invoices.show');
             Route::patch('pakistan-fbr/invoices/{invoice}', [PakistanFbrInvoiceController::class, 'update'])->middleware('throttle:sensitive')->name('pakistan-fbr.invoices.update');
             Route::post('pakistan-fbr/invoices/{invoice}/submit', [PakistanFbrInvoiceController::class, 'submit'])->middleware('throttle:sensitive')->name('pakistan-fbr.invoices.submit');
+            Route::post('pakistan-fbr/invoices/{invoice}/retry', [PakistanFbrInvoiceController::class, 'retry'])->middleware('throttle:sensitive')->name('pakistan-fbr.invoices.retry');
             Route::get('pakistan-fbr/invoices/{invoice}/attempts', [PakistanFbrInvoiceController::class, 'attempts'])->name('pakistan-fbr.invoices.attempts');
             Route::get('pakistan-fbr/configuration', [FbrConfigurationController::class, 'show'])->name('pakistan-fbr.configuration.show');
             Route::put('pakistan-fbr/configuration', [FbrConfigurationController::class, 'update'])->middleware('throttle:sensitive')->name('pakistan-fbr.configuration.update');

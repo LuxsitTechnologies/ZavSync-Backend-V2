@@ -84,4 +84,13 @@ class PakistanFbrInvoice extends Model
             && $this->fbr_reference_number === null
             && in_array($this->fbr_status, [FbrSubmissionStatus::NotSubmitted, FbrSubmissionStatus::Rejected], true);
     }
+
+    public function scenarioId(): ?string
+    {
+        return match ($this->buyer_snapshot['type'] ?? null) {
+            'Registered' => 'SN001',
+            'Unregistered' => 'SN002',
+            default => null,
+        };
+    }
 }

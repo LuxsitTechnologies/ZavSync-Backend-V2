@@ -27,7 +27,7 @@ F production snapshot/provider confirmation required. F is not a claim of absenc
 | Quantity, rate/unit price | Integer thousandths and minor units | B: intentional exact arithmetic; live rounding requires confirmation |
 | Sales/extra/further/withholding tax | Integer amounts and basis-point calculation | B/F: field mapping present; statutory calculation semantics uncertified |
 | SRO schedule/item | Per-line identifiers | B/F: dependent catalog validation uncertified |
-| Scenario/reference identifiers | SCENARIO reference category; no invoice scenario field | C/F: no invented payload field |
+| Scenario/reference identifiers | V1 buyer-type derivation: Registered SN001, Unregistered SN002; SCENARIO catalog remains uncertified | B/F: no client selector |
 | Submit/status/response/reference | Dedicated attempts, sanitized response, explicit status | B/F: fake-gateway verified, real provider not certified |
 | Failure/retry/idempotency | Original-key retry for uncertain attempts; pending lease | B/F: application safety; upstream idempotency must be certified |
 | Invoice/submission history | Audit, attempts and historical evidence | B/F: no fabricated event history |
@@ -80,7 +80,7 @@ The V2 sources below describe code, not certified statutory semantics.
 | buyerProvince | invoice destination_province | F |
 | buyerAddress | buyer_snapshot.address | F |
 | buyerRegistrationType | buyer_snapshot.type | F: enum |
-| scenario identifier | Not emitted | C/F: contract absent |
+| scenarioId | Derived from buyer_snapshot.type: Registered SN001, Unregistered SN002 | B/F: V1 rule verified; provider certification pending |
 | hsCode | line hs_code unchanged | F: catalog |
 | productDescription | line description unchanged | F |
 | rate | line fbr_rate_id unchanged | F: identifier versus display value |
@@ -120,6 +120,73 @@ identify `module_name: FBR Invoicing`, `print_data: true`, regulatory print stat
 
 Stage 15B must implement FBR Invoicing using the V2 design system and the finalized
 FBR Invoicing APIs. Backend certification gaps must remain honest unavailable states.
+
+## Stage 15A.7 dedicated FBR contract
+
+All monetary request and response fields below use integer PKR paisa; quantity uses
+integer thousandths. New FBR line and invoice totals equal taxable amount plus
+sales tax plus extra tax plus further tax. Sales tax withheld is reported separately
+and never subtracted. The verified V1 dedicated line and HRM header use this rule;
+the V1 dedicated header omitted extra/further tax and is deliberately corrected for
+new V2 FBR Invoices. Native Accounting retains its own calculation service.
+An optional positive integer `sales_tax` on each line is authoritative even when
+it differs from the rate-derived result. Zero or omission follows the verified V1
+fallback and calculates sales tax from `tax_rate_bps`. The stored rate metadata
+(`tax_rate_bps` and `fbr_rate_id`) remains unchanged. Differences between an
+explicit amount and rate-derived amount are accepted; a future warning/rejection
+would require a verified regulatory rule. No floating-point arithmetic is used.
+
+Create: `POST /api/v1/pakistan-fbr/invoices` with `X-Company-Id` and
+`Idempotency-Key` headers. Update draft: `PATCH /api/v1/pakistan-fbr/invoices/{invoice}`.
+Both accept `invoice_date` and optional `due_date` as YYYY-MM-DD, string
+`invoice_type`, `sale_type`, `origin_province`, `destination_province`, optional
+tenant-owned UUID `customer_id`, optional `notes`, and `buyer_snapshot` containing
+`name`, `type` (Registered or Unregistered), optional 7-digit NTN or 13-digit CNIC
+`registration_number`, optional `province` and `address`. `lines` is a nonempty
+array of `description`, `hs_code`, `unit`, integer `quantity_milli`, integer
+`unit_price`, optional integer `discount`, integer `tax_rate_bps` (sales tax),
+optional integer `sales_tax` (positive exact amount overrides rate; zero, null or omission uses rate),
+`fbr_rate_id`, and optional `sro_schedule_id`/`sro_item_id`. Optional integer
+`extra_tax`, `further_tax`, `st_withheld` are exact line amounts. Their legacy
+rate alternatives `other_tax_rate_bps`, `advance_tax_rate_bps`, and
+`withholding_tax_rate_bps` remain supported when the corresponding explicit
+amount is absent; a nonzero rate and explicit amount together are rejected.
+`scenario_id` is never an input: the backend derives SN001 for Registered buyers
+and SN002 for Unregistered buyers from the stored buyer type. The detail resource
+exposes the derived `scenario_id`; the payload mapper emits `scenarioId`.
+
+List: `GET /api/v1/pakistan-fbr/invoices` supports `historical` boolean and
+`per_page` (1–100); detail is `GET /api/v1/pakistan-fbr/invoices/{invoice}`.
+Additional free-text, status and date-range filters are deferred pending an
+indexed query contract; the existing tenant-scoped pagination is unchanged.
+Resource totals and per-line tax amounts are authoritative integer minor units.
+Each line response exposes `sales_tax`, `extra_tax`, `further_tax` and `st_withheld` aliases
+alongside the existing `other_tax_amount`, `advance_tax_amount` and
+`withholding_tax_amount` fields for existing clients.
+Submit: `POST /api/v1/pakistan-fbr/invoices/{invoice}/submit` requires an
+`Idempotency-Key`; retry recovery:
+`POST /api/v1/pakistan-fbr/invoices/{invoice}/retry` requires no client key.
+The server selects the unresolved attempt under the invoice lock, then reuses its
+original provider identity through the normal claim, payload-hash, configuration,
+lease and generation checks. An active lease returns pending without a provider
+call. Accepted, submitted, historical or never-submitted invoices cannot be
+recovered this way. `GET /api/v1/pakistan-fbr/invoices/{invoice}/attempts`
+returns status and sanitized evidence, without credentials or idempotency keys.
+The invoice resource exposes `capabilities.retry_recovery` when an unresolved
+pending or failed state has no accepted reference. A pending lease may still
+defer the provider call; the server remains authoritative.
+
+Configuration remains `GET/PUT /api/v1/pakistan-fbr/configuration`; reference
+data remains `GET /api/v1/pakistan-fbr/reference-data`, including source, version,
+active state and effective dates. Historical evidence is read through
+`GET /api/v1/pakistan-fbr/historical-invoices/{invoice}/evidence` and remains
+immutable. The resource advertises regulatory print/QR as uncertified and does
+not authorize accounting posting or payment effects.
+
+Historical V1 header and line amounts, tax amounts, withholding and evidence are
+preserved independently; mismatch exceptions are recorded, never normalized.
+Scenario values beyond the two verified V1 buyer types and regulatory catalog
+data remain uncertified. No real provider behavior is certified by these tests.
 
 ## Historical and certification boundary
 

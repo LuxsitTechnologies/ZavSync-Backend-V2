@@ -28,6 +28,7 @@ class PakistanFbrPayloadMapper
             'buyerProvince' => $invoice->destination_province,
             'buyerAddress' => $invoice->buyer_snapshot['address'] ?? null,
             'buyerRegistrationType' => $invoice->buyer_snapshot['type'],
+            'scenarioId' => $invoice->scenarioId(),
             'items' => $invoice->lines->map(fn (PakistanFbrInvoiceLine $line): array => [
                 'hsCode' => $line->hs_code, 'productDescription' => $line->description,
                 'rate' => $line->fbr_rate_id, 'uoM' => $line->unit,
