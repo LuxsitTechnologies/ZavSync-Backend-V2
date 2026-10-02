@@ -27,6 +27,11 @@ class Employee extends Model
         return $this->belongsTo(Company::class);
     }
 
+    public function companyMembership(): HasOne
+    {
+        return $this->hasOne(CompanyUser::class);
+    }
+
     public function payrollProfiles(): HasMany
     {
         return $this->hasMany(EmployeePayrollProfile::class);

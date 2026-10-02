@@ -53,6 +53,7 @@ class AppServiceProvider extends ServiceProvider
         Model::preventLazyLoading(! app()->isProduction());
         RateLimiter::for('login', fn (Request $request) => Limit::perMinute(5)->by($request->ip().'|'.$request->string('email')->lower()));
         RateLimiter::for('password-reset', fn (Request $request) => Limit::perHour(5)->by($request->ip().'|'.$request->string('email')->lower()));
+        RateLimiter::for('password-change', fn (Request $request) => Limit::perHour(5)->by(($request->user()?->id ?? $request->ip()).'|'.$request->ip()));
         RateLimiter::for('invitations', fn (Request $request) => Limit::perMinute(10)->by(($request->user()?->id ?? $request->ip()).'|'.$request->ip()));
         RateLimiter::for('uploads', fn (Request $request) => Limit::perMinute(20)->by(($request->user()?->id ?? $request->ip()).'|'.$request->header('X-Company-Id')));
         RateLimiter::for('company-switch', fn (Request $request) => Limit::perMinute(30)->by((string) ($request->user()?->id ?? $request->ip())));

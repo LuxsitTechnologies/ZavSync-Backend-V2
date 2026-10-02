@@ -52,8 +52,8 @@ try {
     }
     if ($mode === 'concurrency') {
         $command .= ' --fail-on-skipped --fail-on-warning --fail-on-phpunit-deprecation --filter '
-            .escapeshellarg('MariaDbConcurrencyTest|FbrSubmissionLeaseConcurrencyTest|LegacyImportOwnershipConcurrencyTest|TechnicalIdentifierTest|ClaimGenerationTest|LegacyImportGenerationTest|CertificationDateTimeTest|InvoiceCreationRollbackTest|PakistanFbrDomainTest|MigrationIntegrityTest')
-            .' '.escapeshellarg(__DIR__.'/Feature/Stage15');
+            .escapeshellarg('MariaDbConcurrencyTest|MariaDbEmployeeIdentityConcurrencyTest|FbrSubmissionLeaseConcurrencyTest|LegacyImportOwnershipConcurrencyTest|TechnicalIdentifierTest|ClaimGenerationTest|LegacyImportGenerationTest|CertificationDateTimeTest|InvoiceCreationRollbackTest|PakistanFbrDomainTest|MigrationIntegrityTest')
+            .' '.escapeshellarg(__DIR__.'/Feature');
     }
     passthru($command, $status);
 } finally {

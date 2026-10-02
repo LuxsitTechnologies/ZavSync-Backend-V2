@@ -23,6 +23,7 @@ use App\Http\Controllers\Api\V1\Accounting\SupplierBillActionController;
 use App\Http\Controllers\Api\V1\Accounting\SupplierBillController;
 use App\Http\Controllers\Api\V1\Accounting\SupplierController;
 use App\Http\Controllers\Api\V1\Accounting\WarehouseController;
+use App\Http\Controllers\Api\V1\AccountProfileController;
 use App\Http\Controllers\Api\V1\Ai\AiActionProposalController;
 use App\Http\Controllers\Api\V1\Ai\AiConversationController;
 use App\Http\Controllers\Api\V1\Ai\AiEvaluationController;
@@ -51,6 +52,7 @@ use App\Http\Controllers\Api\V1\Crm\CrmPipelineController;
 use App\Http\Controllers\Api\V1\Crm\CrmReportController;
 use App\Http\Controllers\Api\V1\Crm\CrmScoreController;
 use App\Http\Controllers\Api\V1\Crm\CrmTagController;
+use App\Http\Controllers\Api\V1\EmployeeIdentityController;
 use App\Http\Controllers\Api\V1\Fbr\FbrConfigurationController;
 use App\Http\Controllers\Api\V1\Fbr\FbrReferenceDataController;
 use App\Http\Controllers\Api\V1\Fbr\LegacyMigrationController;
@@ -82,6 +84,7 @@ use App\Http\Controllers\Api\V1\Platform\CompanyExportController;
 use App\Http\Controllers\Api\V1\Platform\CompanySettingController;
 use App\Http\Controllers\Api\V1\Platform\CompanyUserController;
 use App\Http\Controllers\Api\V1\Platform\DocumentController;
+use App\Http\Controllers\Api\V1\Platform\EmployeeLinkController;
 use App\Http\Controllers\Api\V1\Platform\InvitationController;
 use App\Http\Controllers\Api\V1\Platform\NavigationPreferenceController;
 use App\Http\Controllers\Api\V1\Platform\NotificationController;
@@ -105,11 +108,15 @@ Route::prefix('v1')->group(function (): void {
 
     Route::middleware('auth:sanctum')->group(function (): void {
         Route::get('auth/me', [AuthController::class, 'current']);
+        Route::get('auth/profile', [AccountProfileController::class, 'show'])->name('auth.profile.show');
+        Route::patch('auth/profile', [AccountProfileController::class, 'update'])->middleware('throttle:sensitive')->name('auth.profile.update');
+        Route::post('auth/change-password', [AccountProfileController::class, 'changePassword'])->middleware('throttle:password-change')->name('auth.change-password');
         Route::post('auth/logout', [AuthController::class, 'logout']);
         Route::post('auth/switch-company', [AuthController::class, 'switchCompany'])->middleware('throttle:company-switch');
         Route::post('platform/companies', [CompanyController::class, 'store'])->middleware('throttle:company-create')->name('platform.companies.store');
 
         Route::middleware('company')->group(function (): void {
+            Route::get('employee/me', [EmployeeIdentityController::class, 'show'])->name('employee.me');
             Route::get('platform/navigation', [NavigationPreferenceController::class, 'index'])->name('platform.navigation.index');
             Route::put('platform/navigation/{item}', [NavigationPreferenceController::class, 'update'])->middleware('throttle:sensitive')->name('platform.navigation.update');
             Route::delete('platform/navigation/{item}', [NavigationPreferenceController::class, 'reset'])->middleware('throttle:sensitive')->name('platform.navigation.reset');
@@ -158,6 +165,9 @@ Route::prefix('v1')->group(function (): void {
             Route::get('ai/intelligence/calendar/events/{event}/context', [CalendarIntelligenceController::class, 'meetingContext'])->name('ai.intelligence.calendar.context');
             Route::get('platform/users', [CompanyUserController::class, 'index'])->name('platform.users.index');
             Route::get('platform/users/{membership}', [CompanyUserController::class, 'show'])->name('platform.users.show');
+            Route::get('platform/users/{membership}/employee-link', [EmployeeLinkController::class, 'show'])->name('platform.users.employee-link.show');
+            Route::put('platform/users/{membership}/employee-link', [EmployeeLinkController::class, 'update'])->middleware('throttle:sensitive')->name('platform.users.employee-link.update');
+            Route::delete('platform/users/{membership}/employee-link', [EmployeeLinkController::class, 'destroy'])->middleware('throttle:sensitive')->name('platform.users.employee-link.destroy');
             Route::put('platform/users/{membership}/roles', [CompanyUserController::class, 'updateRoles'])->name('platform.users.roles');
             Route::patch('platform/users/{membership}/status', [CompanyUserController::class, 'updateStatus'])->name('platform.users.status');
             Route::delete('platform/users/{membership}', [CompanyUserController::class, 'destroy'])->name('platform.users.destroy');

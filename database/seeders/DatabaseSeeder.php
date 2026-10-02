@@ -81,6 +81,7 @@ class DatabaseSeeder extends Seeder
             'banking.settlements', 'banking.cashflow',
             'budget.view', 'budget.manage', 'budget.submit', 'budget.approve', 'forecast.view', 'forecast.manage',
             'accounting.close.view', 'accounting.period.close', 'accounting.period.reopen', 'accounting.year.close', 'accounting.year.reopen',
+            'employee.self.view', 'employee.links.manage',
             'payroll.view', 'payroll.manage', 'payroll.calculate', 'payroll.review', 'payroll.approve', 'payroll.post',
             'payroll.pay', 'payroll.settle-liabilities', 'payroll.reports', 'payroll.configure',
             'crm.view', 'crm.accounts.manage', 'crm.contacts.manage', 'crm.leads.manage', 'crm.deals.manage',

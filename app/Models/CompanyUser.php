@@ -35,6 +35,11 @@ class CompanyUser extends Model
         return $this->belongsTo(Company::class);
     }
 
+    public function employee(): BelongsTo
+    {
+        return $this->belongsTo(Employee::class);
+    }
+
     public function roles(): BelongsToMany
     {
         return $this->belongsToMany(Role::class, 'company_user_role');
