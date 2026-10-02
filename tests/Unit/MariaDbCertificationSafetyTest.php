@@ -145,4 +145,74 @@ PHP;
     {
         return [['APP_CONFIG_CACHE'], ['APP_ROUTES_CACHE']];
     }
+
+    public function test_isolated_preflight_and_phpunit_bootstrap_preserve_parent_handlers(): void
+    {
+        $errorHandler = get_error_handler();
+        $exceptionHandler = get_exception_handler();
+        $code = <<<'PHP'
+require 'vendor/autoload.php';
+require 'tests/MariaDbHandlerProbeTest.php';
+Tests\MariaDbHandlerProbeTest::fakeConnectivity();
+$argv = ['tests/mariadb.php', 'preflight'];
+require 'tests/mariadb.php';
+PHP;
+        $process = new Process([PHP_BINARY, '-r', $code], dirname(__DIR__, 2), $this->certificationEnvironment());
+        $process->run();
+        $this->assertSame(0, $process->getExitCode(), $process->getErrorOutput().$process->getOutput());
+        $this->assertStringContainsString('MariaDB safety assertion PASS', $process->getOutput());
+        $this->assertSame($errorHandler, get_error_handler());
+        $this->assertSame($exceptionHandler, get_exception_handler());
+
+        $code = <<<'PHP'
+require 'vendor/autoload.php';
+$error = static function (): bool { return false; };
+$exception = static function (Throwable $exception): void {};
+set_error_handler($error);
+set_exception_handler($exception);
+require 'tests/mariadb-bootstrap.php';
+if (get_error_handler() !== $error || get_exception_handler() !== $exception) {
+    throw new RuntimeException('PHPUnit bootstrap modified global handlers.');
+}
+restore_error_handler();
+restore_exception_handler();
+echo 'HANDLERS_UNCHANGED';
+PHP;
+        $process = new Process([PHP_BINARY, '-r', $code], dirname(__DIR__, 2), $this->certificationEnvironment());
+        $process->run();
+        $this->assertSame(0, $process->getExitCode(), $process->getErrorOutput());
+        $this->assertSame('HANDLERS_UNCHANGED', $process->getOutput());
+    }
+
+    public function test_generated_config_runs_real_phpunit_lifecycle_without_risky_tests(): void
+    {
+        $root = dirname(__DIR__, 2);
+        $xml = MariaDbCertification::configuration($root);
+        $suites = $xml->getElementsByTagName('testsuites')->item(0);
+        while ($suites->firstChild) {
+            $suites->removeChild($suites->firstChild);
+        }
+        $suite = $xml->createElement('testsuite');
+        $suite->setAttribute('name', 'Handler lifecycle probe');
+        $suite->appendChild($xml->createElement('file', $root.'/tests/MariaDbHandlerProbeTest.php'));
+        $suites->appendChild($suite);
+        $temporary = tempnam(sys_get_temp_dir(), 'zavsync-handler-test-');
+        try {
+            $xml->save($temporary);
+            $process = new Process([PHP_BINARY, 'vendor/bin/phpunit', '--configuration', $temporary,
+                '--do-not-cache-result', '--fail-on-risky', '--fail-on-warning'], $root, $this->certificationEnvironment());
+            $process->run();
+            $this->assertSame(0, $process->getExitCode(), $process->getOutput().$process->getErrorOutput());
+            $summary = json_decode(trim($process->getOutput()), true);
+            if (is_array($summary)) {
+                $this->assertSame('passed', $summary['result']);
+                $this->assertSame(2, $summary['tests']);
+                $this->assertSame(4, $summary['assertions']);
+            } else {
+                $this->assertStringContainsString('OK (2 tests, 4 assertions)', $process->getOutput());
+            }
+        } finally {
+            unlink($temporary);
+        }
+    }
 }

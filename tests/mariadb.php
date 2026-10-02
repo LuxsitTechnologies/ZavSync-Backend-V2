@@ -1,5 +1,6 @@
 <?php
 
+use Symfony\Component\Process\Process;
 use Tests\MariaDbCertification;
 
 /** Generate a credential-free PHPUnit configuration from the normal suite. */
@@ -25,14 +26,26 @@ foreach (['APP_ENV' => 'testing', 'DB_URL' => '', 'DB_SOCKET' => '', 'MAIL_MAILE
     $_ENV[$key] = $_SERVER[$key] = $value;
 }
 if ($mode === 'preflight') {
-    require __DIR__.'/mariadb-bootstrap.php';
+    $application = MariaDbCertification::bootApplication();
+    MariaDbCertification::guard($application);
+    fwrite(STDOUT, "MariaDB safety assertion PASS: mysql / zavsync_v2_stage15_cert / MariaDB 11.8.9\n");
+    $application->terminate();
+    $application['db']->disconnect();
     exit(0);
+}
+$preflight = new Process([PHP_BINARY, __FILE__, 'preflight'], $root);
+$preflight->setTimeout(30);
+$status = $preflight->run(function (string $type, string $output): void {
+    fwrite($type === Process::ERR ? STDERR : STDOUT, $output);
+});
+if ($status !== 0) {
+    exit($status);
 }
 $temporary = tempnam(sys_get_temp_dir(), 'zavsync-mariadb-phpunit-');
 try {
     $xml->save($temporary);
     $command = escapeshellarg(PHP_BINARY).' '.escapeshellarg($root.'/vendor/bin/phpunit')
-        .' --configuration '.escapeshellarg($temporary).' --do-not-cache-result';
+        .' --configuration '.escapeshellarg($temporary).' --do-not-cache-result --fail-on-risky';
     if ($mode === 'stage15') {
         $command .= ' '.escapeshellarg(__DIR__.'/Feature/Stage15');
     }

@@ -17,6 +17,42 @@ one user and one company. Codex did not connect to MariaDB or Docker.
 
 ## Harness and safety
 
+### Stage 15A.4.2 handler lifecycle correction
+
+The user manually ran Stage 15 on MariaDB 11.8.9: 66 tests / 466 assertions,
+zero failures/errors, but 66 risky tests. This is NOT a clean certification PASS.
+The previous PHPUnit bootstrap booted a preflight Laravel application and left its
+global error/exception handlers installed. Application flush did not restore them.
+Laravel test teardown clears handler stacks through HandleExceptions::flushState;
+PHPUnit therefore detected removal of handlers present before each test. Restored
+baseline handler state made this repeat across otherwise unrelated test bodies.
+
+The runner now executes preflight in a separate bounded child process, waits for
+successful exit, then launches a fresh PHPUnit process. Explicit preflight mode
+boots/guards/terminates Laravel and exits. Its handlers and shutdown callbacks
+cannot leak into PHPUnit. PHPUnit's bootstrap only loads Composer, checks process
+settings and enables certification mode: it does not boot Laravel or touch global
+handlers. Each test uses Laravel's normal TestCase lifecycle and retains the
+per-application server/cache guard before any RefreshDatabase operations. The
+runner also uses --fail-on-risky; no reporting is disabled or suppressed.
+
+Tests exercise actual preflight with only database connectivity faked, unchanged
+parent/sentinel handlers, and a nested PHPUnit process using the generated config
+and real Laravel lifecycle with --fail-on-risky --fail-on-warning. Its two probe
+tests (4 assertions) pass with zero risky tests. The root-level probe fixture is
+deliberately outside the normal Unit/Feature discovery directories; its fake
+connection forbids PDO access and exists only in child test processes.
+
+Manual commands below are unchanged. Both stage15 and all run isolated preflight
+automatically; direct invocation of a generated XML is not the certification entry
+point. MariaDB must be rerun with zero failures, errors AND risky tests before PASS.
+
+Stage 15A.4.2 local gates PASS: harness 31 tests / 68 assertions; Stage 15 SQLite
+66 / 466; full SQLite regression 542 / 3,144. Nested probe: 2 / 4, zero risky
+tests (included as a subprocess check, not added to the outer test count). Pint,
+changed PHP syntax, Composer strict validation and diff/whitespace review PASS.
+No actual MariaDB, Docker, or production connection was made by Codex.
+
 ### Stage 15A.4.1 bootstrap correction
 
 The first manual preflight exposed a harness bug before tests: routesAreCached()
