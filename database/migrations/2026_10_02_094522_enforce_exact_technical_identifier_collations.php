@@ -7,6 +7,9 @@ use Illuminate\Support\Facades\Schema;
 
 return new class extends Migration
 {
+    /** Reverting case/NO PAD identity may collide distinct keys; only a reviewed forward correction is safe. */
+    public const FORWARD_ONLY_DRIVERS = ['mysql', 'mariadb'];
+
     /** @var array<string, array<string, array{int, bool}>> */
     public const IDENTIFIERS = [
         'journals' => ['idempotency_key' => [100, true]],

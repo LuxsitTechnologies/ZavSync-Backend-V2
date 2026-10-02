@@ -1,6 +1,10 @@
 STAGE 15A.6 — IDENTIFIER AND LOCKING AUDIT / MANUAL CERTIFICATION
 
 Status: local preparation only. MariaDB concurrency has NOT been executed by Codex.
+Stage 15A.6.2 update: the user reports MariaDB 11.8.9 concurrency PASS on
+9abde74dc8e9a4a5efa3de57495506ff2252e6ce: 74 tests / 1,232 assertions.
+Final MariaDB all-mode regression requires a clean rerun after the migration-policy correction.
+The historical local/preparation results below describe their original checkpoints.
 Baseline: 5bc27fa4032161b9994f8c8d6bdc312ad93dcaff, main.
 Do not use these commands against V1, production, or any other database.
 
@@ -213,3 +217,46 @@ PRIOR USER-REPORTED BASELINE (NOT A CERTIFICATION OF THESE NEW CHANGES)
 MariaDB serial: 80 migrations+seed PASS; Stage15 66 tests/466 assertions PASS;
 full backend 551 tests/3,184 assertions PASS.
 MariaDB concurrency and changed-schema runtime certification: PENDING MANUAL EXECUTION.
+
+STAGE 15A.6.2 — FORWARD-ONLY POLICY / SERIAL SKIP INVENTORY
+
+The identifier migration explicitly declares FORWARD_ONLY_DRIVERS = mysql, mariadb.
+Its up/down behavior is unchanged. Reverting NO PAD/binary identity may collide
+Retry-A with retry-a or keys differing by trailing spaces. No automatic rollback.
+MigrationIdentifierCompatibilityTest allows only this exact reviewed filename,
+requires its marker, compiles all 52 forward column changes through MariaDB grammar,
+and verifies exact exception class/message and zero down schema operations.
+Every other migration still executes down and undergoes index-name checks.
+Static collation capability is supplied explicitly; the audit never connects to a DB.
+
+The 20 serial all-mode skips are exactly:
+FbrSubmissionLeaseConcurrencyTest (4):
+- test_expired_worker_failure_cannot_overwrite_a_newer_accepted_claim
+- test_expired_worker_success_cannot_overwrite_a_newer_reference_or_metadata
+- test_native_accounting_fbr_expired_worker_cannot_overwrite_a_newer_accepted_claim
+- test_native_accounting_fbr_stale_success_cannot_overwrite_newer_reference_or_metadata
+LegacyImportOwnershipConcurrencyTest (4):
+- test_old_import_worker_failure_cannot_overwrite_a_completed_resume
+- test_old_worker_cannot_write_progress_after_resume
+- test_old_worker_cannot_complete_after_resume
+- test_multiple_resumes_preserve_generation_three
+MariaDbConcurrencyTest (12):
+- test_number_allocation_races: native same company
+- test_number_allocation_races: native distinct companies
+- test_number_allocation_races: native replay
+- test_number_allocation_races: FBR same company
+- test_number_allocation_races: FBR distinct companies
+- test_number_allocation_races: FBR replay
+- test_competing_source_company_mappings_have_one_winner
+- test_duplicate_fingerprint_creates_one_logical_import
+- test_pending_submission_races_make_one_provider_call: same key
+- test_pending_submission_races_make_one_provider_call: different key
+- test_pending_submission_races_make_one_provider_call: changed payload
+- test_controlled_deadlock_has_one_explicit_victim_and_no_partial_commit
+
+All require MARIADB_CERTIFICATION_CONCURRENCY=1 under MariaDB. The all runner sets
+it to 0, while concurrency sets it to 1 and selects all three classes, with
+--fail-on-skipped. No other markTestSkipped sites exist in the current tests tree.
+These cases were covered by the user-reported 74 / 1,232 successful concurrency run.
+No concurrency/application/schema behavior changed in Stage 15A.6.2; rerun
+preflight then all using the same private environment/guarded database above.

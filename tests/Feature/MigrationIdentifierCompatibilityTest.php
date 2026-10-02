@@ -5,15 +5,27 @@ namespace Tests\Feature;
 use Illuminate\Database\MySqlConnection;
 use Illuminate\Database\Schema\Blueprint;
 use Illuminate\Database\Schema\MySqlBuilder;
+use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Schema;
 use Tests\TestCase;
 
 class MigrationIdentifierCompatibilityTest extends TestCase
 {
+    private const FORWARD_ONLY = '2026_10_02_094522_enforce_exact_technical_identifier_collations.php';
+
     public function test_complete_migration_chain_has_portable_identifiers_and_reversible_index_names(): void
     {
-        $connection = new class(null, 'static_only', '', ['charset' => 'utf8mb4', 'collation' => 'utf8mb4_unicode_ci']) extends MySqlConnection
+        $connection = new class(null, 'static_only', '', ['driver' => 'mysql', 'charset' => 'utf8mb4', 'collation' => 'utf8mb4_unicode_ci']) extends MySqlConnection
         {
+            public function selectOne($query, $bindings = [], $useReadPdo = true): object
+            {
+                if ($query !== "SHOW COLLATION WHERE Collation = 'utf8mb4_nopad_bin'" || $bindings !== []) {
+                    throw new \LogicException('Static migration audit forbids unexpected database queries.');
+                }
+
+                return (object) ['Collation' => 'utf8mb4_nopad_bin'];
+            }
+
             public function isMaria(): bool
             {
                 return true;
@@ -29,6 +41,7 @@ class MigrationIdentifierCompatibilityTest extends TestCase
                 throw new \LogicException('Static migration audit must never connect to a database.');
             }
         };
+        DB::swap($connection);
         $connection->useDefaultSchemaGrammar();
         $builder = new class($connection) extends MySqlBuilder
         {
@@ -53,13 +66,47 @@ class MigrationIdentifierCompatibilityTest extends TestCase
         sort($files);
         foreach ($files as $file) {
             $builder->migration = basename($file);
-            (require $file)->up();
+            $migration = require $file;
+            if (basename($file) === self::FORWARD_ONLY) {
+                $this->assertSame(['mysql', 'mariadb'], $migration::FORWARD_ONLY_DRIVERS);
+            } else {
+                $this->assertFalse(defined(get_class($migration).'::FORWARD_ONLY_DRIVERS'), 'New forward-only migrations require explicit compatibility review.');
+            }
+            $migration->up();
         }
         $builder->phase = 'down';
         foreach (array_reverse($files) as $file) {
             $builder->migration = basename($file);
-            (require $file)->down();
+            if (basename($file) !== self::FORWARD_ONLY) {
+                (require $file)->down();
+
+                continue;
+            }
+            $before = count($builder->operations);
+            try {
+                (require $file)->down();
+                $this->fail('The approved forward-only migration must refuse rollback.');
+            } catch (\RuntimeException $exception) {
+                $this->assertSame(\RuntimeException::class, get_class($exception));
+                $this->assertSame('Exact identifier identity cannot be safely collapsed by rollback. Use a reviewed forward migration.', $exception->getMessage());
+            }
+            $this->assertCount($before, $builder->operations, 'Refused rollback must emit no schema changes.');
         }
+        $changed = 0;
+        foreach ($builder->operations as $operation) {
+            if ($operation['migration'] !== self::FORWARD_ONLY || $operation['phase'] !== 'up') {
+                continue;
+            }
+            foreach ($operation['columns'] as $column) {
+                $this->assertTrue($column['change']);
+                $this->assertSame('utf8mb4_nopad_bin', $column['collation']);
+                $changed++;
+            }
+            foreach ($operation['sql'] as $sql) {
+                $this->assertStringContainsString('utf8mb4_nopad_bin', $sql);
+            }
+        }
+        $this->assertSame(52, $changed, 'All reviewed exact-identity columns must compile in the MariaDB audit, even on SQLite.');
         if (getenv('MIGRATION_IDENTIFIER_AUDIT') === '1') {
             fwrite(STDOUT, "\nMIGRATION_AUDIT=".json_encode($builder->operations, JSON_THROW_ON_ERROR)."\n");
         }
