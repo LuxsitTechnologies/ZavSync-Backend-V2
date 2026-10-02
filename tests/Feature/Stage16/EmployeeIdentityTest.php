@@ -5,6 +5,7 @@ namespace Tests\Feature\Stage16;
 use App\Models\Company;
 use App\Models\CompanyUser;
 use App\Models\Employee;
+use App\Models\EmployeePayrollProfile;
 use App\Models\Permission;
 use App\Models\Role;
 use App\Models\User;
@@ -201,6 +202,108 @@ class EmployeeIdentityTest extends TestCase
 
         $this->getJson('/api/v1/employee/me', $this->headers($company))->assertOk()
             ->assertExactJson(['linked' => false, 'employee' => null, 'self_editable' => false]);
+    }
+
+    public function test_link_selector_returns_only_employee_identity_status_and_link_state(): void
+    {
+        [$user, $company] = $this->actingAsCompanyUser(['employee.links.manage']);
+        $linked = $this->employee($company, $user, ['employee_code' => 'EMP-001', 'full_name' => 'Linked Employee']);
+        $available = $this->employee($company, $user, ['employee_code' => 'EMP-002', 'full_name' => 'Former Employee', 'status' => 'terminated']);
+        $this->membership($company, $user)->forceFill(['employee_id' => $linked->id])->save();
+        EmployeePayrollProfile::factory()->create([
+            'company_id' => $company->id,
+            'employee_id' => $linked->id,
+            'created_by' => $user->id,
+            'base_salary' => 987_654_00,
+            'tax_identifier' => 'PRIVATE-TAX-ID',
+            'employee_bank_reference' => 'PRIVATE-BANK-REF',
+        ]);
+
+        $response = $this->getJson('/api/v1/platform/employee-link-options', $this->headers($company))->assertOk()
+            ->assertJsonPath('data.0.id', $linked->id)
+            ->assertJsonPath('data.0.linked', true)
+            ->assertJsonPath('data.0.available', false)
+            ->assertJsonPath('data.1.id', $available->id)
+            ->assertJsonPath('data.1.status', 'terminated')
+            ->assertJsonPath('data.1.linked', false)
+            ->assertJsonPath('data.1.available', true);
+
+        $expectedFields = ['id', 'employee_code', 'full_name', 'status', 'linked', 'available'];
+        $this->assertSame($expectedFields, array_keys($response->json('data.0')));
+        $this->assertSame($expectedFields, array_keys($response->json('data.1')));
+        foreach (['salary', 'payroll', 'PRIVATE-TAX-ID', 'PRIVATE-BANK-REF', 'bank', 'address', 'date_of_birth', 'gender', 'permissions'] as $sensitive) {
+            $this->assertStringNotContainsString($sensitive, $response->getContent());
+        }
+        $this->assertNoFinancialEffects();
+    }
+
+    public function test_link_selector_requires_its_own_permission_without_payroll_or_platform_admin_bypass(): void
+    {
+        $this->getJson('/api/v1/platform/employee-link-options')->assertUnauthorized();
+
+        foreach ([[], ['employee.self.view'], ['payroll.view']] as $permissions) {
+            [$user, $company] = $this->actingAsCompanyUser($permissions);
+            $this->employee($company, $user);
+            $this->getJson('/api/v1/platform/employee-link-options', $this->headers($company))->assertForbidden();
+        }
+
+        [$administrator, $company] = $this->actingAsCompanyUser([]);
+        $administrator->update(['is_platform_admin' => true]);
+        $this->getJson('/api/v1/platform/employee-link-options', $this->headers($company))->assertForbidden();
+    }
+
+    public function test_link_selector_is_bounded_searchable_and_rejects_invalid_query_parameters(): void
+    {
+        [$user, $company] = $this->actingAsCompanyUser(['employee.links.manage']);
+        $this->employee($company, $user, ['employee_code' => 'EMP-001', 'full_name' => 'Alice Example']);
+        $second = $this->employee($company, $user, ['employee_code' => 'EMP-002', 'full_name' => 'Bob Example']);
+        $this->employee($company, $user, ['employee_code' => 'EMP-003', 'full_name' => 'Carol']);
+
+        $this->getJson('/api/v1/platform/employee-link-options?per_page=1&page=2', $this->headers($company))
+            ->assertOk()->assertJsonPath('data.0.id', $second->id)
+            ->assertJsonPath('meta.current_page', 2)->assertJsonPath('meta.per_page', 1)
+            ->assertJsonPath('meta.total', 3);
+        $this->getJson('/api/v1/platform/employee-link-options?search=Bob', $this->headers($company))
+            ->assertOk()->assertJsonPath('meta.total', 1)->assertJsonPath('data.0.id', $second->id);
+        $this->getJson('/api/v1/platform/employee-link-options?search=EMP-002', $this->headers($company))
+            ->assertOk()->assertJsonPath('meta.total', 1)->assertJsonPath('data.0.id', $second->id);
+        $this->getJson('/api/v1/platform/employee-link-options?search=%27%20OR%201%3D1--', $this->headers($company))
+            ->assertOk()->assertJsonPath('meta.total', 0);
+        $this->getJson('/api/v1/platform/employee-link-options?per_page=101', $this->headers($company))
+            ->assertUnprocessable()->assertJsonValidationErrors('per_page');
+        $this->getJson('/api/v1/platform/employee-link-options?page=0', $this->headers($company))
+            ->assertUnprocessable()->assertJsonValidationErrors('page');
+    }
+
+    public function test_link_selector_defaults_to_a_bounded_first_page(): void
+    {
+        [$user, $company] = $this->actingAsCompanyUser(['employee.links.manage']);
+        Employee::factory()->count(26)->for($company)->create(['created_by' => $user->id]);
+
+        $response = $this->getJson('/api/v1/platform/employee-link-options', $this->headers($company))->assertOk()
+            ->assertJsonPath('meta.per_page', 25)->assertJsonPath('meta.total', 26);
+
+        $this->assertCount(25, $response->json('data'));
+    }
+
+    public function test_link_selector_scopes_each_company_after_switching_without_cross_company_leakage(): void
+    {
+        [$user, $companyA] = $this->actingAsCompanyUser(['employee.links.manage']);
+        $companyB = Company::factory()->create();
+        $companyC = Company::factory()->create();
+        $employeeA = $this->employee($companyA, $user, ['full_name' => 'Company A Employee']);
+        $employeeB = $this->employee($companyB, $user, ['full_name' => 'Company B Employee']);
+        $this->newMembership($companyB, $user, ['employee.links.manage']);
+        $this->employee($companyC, $user, ['full_name' => 'Company C Employee']);
+
+        $this->getJson('/api/v1/platform/employee-link-options', $this->headers($companyA))
+            ->assertOk()->assertJsonPath('meta.total', 1)->assertJsonPath('data.0.id', $employeeA->id)
+            ->assertDontSee('Company B Employee');
+        $this->postJson('/api/v1/auth/switch-company', ['company_id' => $companyB->id])->assertOk();
+        $this->getJson('/api/v1/platform/employee-link-options', $this->headers($companyB))
+            ->assertOk()->assertJsonPath('meta.total', 1)->assertJsonPath('data.0.id', $employeeB->id)
+            ->assertDontSee('Company A Employee');
+        $this->getJson('/api/v1/platform/employee-link-options', $this->headers($companyC))->assertForbidden();
     }
 
     public function test_invitation_acceptance_and_existing_employee_email_do_not_create_a_link(): void

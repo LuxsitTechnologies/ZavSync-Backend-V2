@@ -85,6 +85,7 @@ use App\Http\Controllers\Api\V1\Platform\CompanySettingController;
 use App\Http\Controllers\Api\V1\Platform\CompanyUserController;
 use App\Http\Controllers\Api\V1\Platform\DocumentController;
 use App\Http\Controllers\Api\V1\Platform\EmployeeLinkController;
+use App\Http\Controllers\Api\V1\Platform\EmployeeLinkOptionController;
 use App\Http\Controllers\Api\V1\Platform\InvitationController;
 use App\Http\Controllers\Api\V1\Platform\NavigationPreferenceController;
 use App\Http\Controllers\Api\V1\Platform\NotificationController;
@@ -164,6 +165,7 @@ Route::prefix('v1')->group(function (): void {
             Route::post('ai/intelligence/calendar/synchronize', [CalendarIntelligenceController::class, 'synchronize'])->name('ai.intelligence.calendar.synchronize');
             Route::get('ai/intelligence/calendar/events/{event}/context', [CalendarIntelligenceController::class, 'meetingContext'])->name('ai.intelligence.calendar.context');
             Route::get('platform/users', [CompanyUserController::class, 'index'])->name('platform.users.index');
+            Route::get('platform/employee-link-options', [EmployeeLinkOptionController::class, 'index'])->name('platform.employee-link-options.index');
             Route::get('platform/users/{membership}', [CompanyUserController::class, 'show'])->name('platform.users.show');
             Route::get('platform/users/{membership}/employee-link', [EmployeeLinkController::class, 'show'])->name('platform.users.employee-link.show');
             Route::put('platform/users/{membership}/employee-link', [EmployeeLinkController::class, 'update'])->middleware('throttle:sensitive')->name('platform.users.employee-link.update');
