@@ -15,6 +15,7 @@ return Application::configure(basePath: dirname(__DIR__))
         health: '/up',
     )
     ->withMiddleware(function (Middleware $middleware): void {
+        $middleware->redirectGuestsTo(fn (Request $request): ?string => $request->is('api/*') ? null : route('login'));
         $middleware->statefulApi();
         $identifiers = ['source_system', 'source_id', 'source_company_id', 'legacy_source_system', 'legacy_source_id',
             'legacy_original_company_id', 'idempotency_key', 'creation_idempotency_key', 'origin_idempotency_key',
