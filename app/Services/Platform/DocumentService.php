@@ -10,6 +10,8 @@ use App\Models\CrmLead;
 use App\Models\Customer;
 use App\Models\Document;
 use App\Models\Employee;
+use App\Models\EmployeeTask;
+use App\Models\EmployeeTicket;
 use App\Models\InventoryItem;
 use App\Models\Invoice;
 use App\Models\LeaveRequest;
@@ -34,6 +36,7 @@ class DocumentService
         'inventory_item' => InventoryItem::class, 'employee' => Employee::class, 'payroll_batch' => PayrollBatch::class,
         'crm_account' => CrmAccount::class, 'crm_lead' => CrmLead::class, 'crm_deal' => CrmDeal::class,
         'leave_request' => LeaveRequest::class,
+        'employee_task' => EmployeeTask::class, 'employee_ticket' => EmployeeTicket::class,
     ];
 
     public function resolveOwnedEntity(string $companyId, string $type, string $id): Model
@@ -64,14 +67,19 @@ class DocumentService
             throw new PlatformException('FILE_STORAGE_FAILED', 'The document could not be stored.', 500);
         }
 
-        return Document::query()->create([
-            'company_id' => $companyId, 'uploaded_by' => $user->id,
-            'documentable_type' => $entity->getMorphClass(), 'documentable_id' => (string) $entity->getKey(),
-            'category' => $category, 'original_filename' => $file->getClientOriginalName(),
-            'storage_disk' => $disk, 'storage_key' => $path,
-            'mime_type' => (string) $file->getMimeType(), 'size_bytes' => $file->getSize(),
-            'checksum_sha256' => hash_file('sha256', $file->getRealPath()),
-        ]);
+        try {
+            return Document::query()->create([
+                'company_id' => $companyId, 'uploaded_by' => $user->id,
+                'documentable_type' => $entity->getMorphClass(), 'documentable_id' => (string) $entity->getKey(),
+                'category' => $category, 'original_filename' => $file->getClientOriginalName(),
+                'storage_disk' => $disk, 'storage_key' => $path,
+                'mime_type' => (string) $file->getMimeType(), 'size_bytes' => $file->getSize(),
+                'checksum_sha256' => hash_file('sha256', $file->getRealPath()),
+            ]);
+        } catch (\Throwable $exception) {
+            Storage::disk($disk)->delete($path);
+            throw $exception;
+        }
     }
 
     public function delete(Document $document): void

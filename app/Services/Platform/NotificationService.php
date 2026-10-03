@@ -12,6 +12,22 @@ class NotificationService
     public const CRITICAL_TYPES = ['security.login', 'security.password_changed', 'security.membership_suspended'];
 
     /** @param array<string, mixed> $metadata */
+    public function createInApp(string $companyId, int $recipientId, string $type, string $title, string $message, array $metadata = [], ?string $relatedUrl = null): PlatformNotification
+    {
+        $preference = NotificationPreference::query()->where('company_id', $companyId)->where('user_id', $recipientId)->where('type', $type)->first();
+        if ($preference?->in_app_enabled === false) {
+            return new PlatformNotification(['company_id' => $companyId, 'recipient_id' => $recipientId, 'type' => $type, 'delivery_state' => 'SKIPPED']);
+        }
+        $notification = PlatformNotification::query()->create([
+            'company_id' => $companyId, 'recipient_id' => $recipientId, 'type' => $type, 'channel' => 'IN_APP',
+            'title' => $title, 'message' => $message, 'metadata' => $metadata, 'related_url' => $relatedUrl,
+        ]);
+        DeliverPlatformNotification::dispatch($notification->id)->afterCommit();
+
+        return $notification;
+    }
+
+    /** @param array<string, mixed> $metadata */
     public function create(string $companyId, int $recipientId, string $type, string $title, string $message, array $metadata = [], ?string $relatedUrl = null): PlatformNotification
     {
         $preference = NotificationPreference::query()->where('company_id', $companyId)->where('user_id', $recipientId)->where('type', $type)->first();

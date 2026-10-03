@@ -5,6 +5,8 @@ namespace App\Http\Controllers\Api\V1\Platform;
 use App\Exceptions\PlatformException;
 use App\Http\Controllers\Controller;
 use App\Models\Document;
+use App\Models\EmployeeTask;
+use App\Models\EmployeeTicket;
 use App\Models\LeaveRequest;
 use App\Services\AuditService;
 use App\Services\Platform\DocumentService;
@@ -24,9 +26,9 @@ class DocumentController extends Controller
         $companyId = $this->companyId($request);
         $this->access->authorize($request->user(), $companyId, 'platform.documents.view');
         $query = Document::query()->where('company_id', $companyId);
-        $query->where('documentable_type', '!=', (new LeaveRequest)->getMorphClass());
+        $query->whereNotIn('documentable_type', $this->restrictedMorphTypes());
         if ($request->filled('documentable_type') && $request->filled('documentable_id')) {
-            abort_if($request->string('documentable_type')->toString() === 'leave_request', 404);
+            abort_if(in_array($request->string('documentable_type')->toString(), ['leave_request', 'employee_task', 'employee_ticket'], true), 404);
             $entity = $this->documents->resolveOwnedEntity($companyId, $request->string('documentable_type')->toString(), $request->string('documentable_id')->toString());
             $query->where('documentable_type', $entity->getMorphClass())->where('documentable_id', (string) $entity->getKey());
         }
@@ -43,7 +45,7 @@ class DocumentController extends Controller
             'category' => ['nullable', 'string', 'max:60'],
             'file' => ['required', File::types(config('platform.document_mimes'))->max(config('platform.document_max_kilobytes')), 'extensions:'.implode(',', config('platform.document_mimes'))],
         ]);
-        abort_if($data['documentable_type'] === 'leave_request', 404);
+        abort_if(in_array($data['documentable_type'], ['leave_request', 'employee_task', 'employee_ticket'], true), 404);
         $document = $this->documents->store($companyId, $request->user(), $data['documentable_type'], $data['documentable_id'], $data['category'] ?? 'general', $request->file('file'));
         $this->audit->record($request, $request->user(), $companyId, 'document_uploaded', 'platform', $document, null, $document->toArray());
 
@@ -53,7 +55,7 @@ class DocumentController extends Controller
     public function download(Request $request, Document $document): StreamedResponse
     {
         $this->owned($request, $document);
-        abort_if($document->documentable_type === (new LeaveRequest)->getMorphClass(), 404);
+        abort_if(in_array($document->documentable_type, $this->restrictedMorphTypes(), true), 404);
         $this->access->authorize($request->user(), $this->companyId($request), 'platform.documents.view');
         if (! Storage::disk($document->storage_disk)->exists($document->storage_key)) {
             throw new PlatformException('FILE_NOT_FOUND', 'The stored document is unavailable.', 404);
@@ -65,7 +67,7 @@ class DocumentController extends Controller
     public function destroy(Request $request, Document $document): JsonResponse
     {
         $this->owned($request, $document);
-        abort_if($document->documentable_type === (new LeaveRequest)->getMorphClass(), 404);
+        abort_if(in_array($document->documentable_type, $this->restrictedMorphTypes(), true), 404);
         $companyId = $this->companyId($request);
         $this->access->authorize($request->user(), $companyId, 'platform.documents.manage');
         $old = $document->toArray();
@@ -83,5 +85,11 @@ class DocumentController extends Controller
     private function companyId(Request $request): string
     {
         return (string) $request->attributes->get('company_id');
+    }
+
+    /** @return list<string> */
+    private function restrictedMorphTypes(): array
+    {
+        return [(new LeaveRequest)->getMorphClass(), (new EmployeeTask)->getMorphClass(), (new EmployeeTicket)->getMorphClass()];
     }
 }

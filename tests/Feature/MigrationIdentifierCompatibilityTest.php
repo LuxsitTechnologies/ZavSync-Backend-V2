@@ -32,13 +32,22 @@ class MigrationIdentifierCompatibilityTest extends TestCase
                     'employee.attendance.view', 'employee.attendance.clock', 'employee.attendance.correction.request',
                     'attendance.view', 'attendance.manage', 'attendance.corrections.manage',
                     'employee.leave.view', 'employee.leave.request', 'employee.leave.cancel',
-                    'leave.view', 'leave.manage', 'leave.approve', 'holiday.view', 'holiday.manage'];
+                    'leave.view', 'leave.manage', 'leave.approve', 'holiday.view', 'holiday.manage',
+                    'employee.tasks.view', 'employee.tasks.update', 'employee.tasks.comment',
+                    'employee.tickets.view', 'employee.tickets.create', 'employee.tickets.comment',
+                    'tasks.view', 'tasks.manage', 'tasks.assign', 'tickets.view', 'tickets.manage'];
+                $expectedPermissionCount = match (true) {
+                    in_array('payroll.release', $bindings, true) => 2,
+                    in_array('employee.leave.view', $bindings, true) => 8,
+                    in_array('employee.tasks.view', $bindings, true) => 11,
+                    default => 6,
+                };
                 if (! str_starts_with($query, 'insert ignore into `permissions`')
-                    || count(array_intersect($reviewedPermissions, $bindings)) !== (in_array('payroll.release', $bindings, true) ? 2 : (in_array('employee.leave.view', $bindings, true) ? 8 : 6))) {
+                    || count(array_intersect($reviewedPermissions, $bindings)) !== $expectedPermissionCount) {
                     throw new \LogicException('Static migration audit forbids unexpected database writes.');
                 }
 
-                return in_array('payroll.release', $bindings, true) ? 2 : (in_array('employee.leave.view', $bindings, true) ? 8 : 6);
+                return $expectedPermissionCount;
             }
 
             public function isMaria(): bool
