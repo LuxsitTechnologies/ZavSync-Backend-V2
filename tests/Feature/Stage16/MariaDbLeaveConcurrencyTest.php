@@ -79,8 +79,11 @@ class MariaDbLeaveConcurrencyTest extends TestCase
         $this->signalWorker($second, 'go');
         $this->awaitWorker($second, 'attempting');
         $this->signalWorker($first, 'release');
-        $this->assertSame(LeaveRequest::query()->sole()->id, $this->finishWorker($first)['id']);
-        $this->assertSame('LEAVE_OVERLAP', $this->finishWorker($second)['result']);
+        $firstResult = $this->finishWorker($first);
+        $secondResult = $this->finishWorker($second);
+        $this->assertSame('LEAVE_OVERLAP', $secondResult['result']);
+        $this->assertDatabaseCount('leave_requests', 1);
+        $this->assertSame($firstResult['id'], LeaveRequest::query()->sole()->id);
         $this->assertSame(2, app(LeaveService::class)->balance(LeaveEntitlement::query()->sole())['pending_units']);
         $this->assertSame(0, Journal::query()->count());
     }
