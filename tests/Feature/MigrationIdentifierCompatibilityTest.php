@@ -35,11 +35,27 @@ class MigrationIdentifierCompatibilityTest extends TestCase
                     'leave.view', 'leave.manage', 'leave.approve', 'holiday.view', 'holiday.manage',
                     'employee.tasks.view', 'employee.tasks.update', 'employee.tasks.comment',
                     'employee.tickets.view', 'employee.tickets.create', 'employee.tickets.comment',
-                    'tasks.view', 'tasks.manage', 'tasks.assign', 'tickets.view', 'tickets.manage'];
+                    'tasks.view', 'tasks.manage', 'tasks.assign', 'tickets.view', 'tickets.manage',
+                    'employee.documents.view', 'employee.documents.upload', 'employee.documents.admin.view',
+                    'employee.documents.issue', 'employee.documents.release', 'employee.profile.edit',
+                    'employee.announcements.view', 'announcements.view', 'announcements.manage', 'announcements.publish',
+                    'employee.directory.view', 'employee.teams.view', 'teams.view', 'teams.manage',
+                    'employee.assets.view', 'employee.assets.request', 'assets.view', 'assets.decide',
+                    'employee.expenses.view', 'employee.expenses.create', 'employee.expenses.edit',
+                    'employee.expenses.submit', 'expenses.view', 'expenses.categories.manage', 'expenses.approve',
+                    'employee.schedule.view', 'employee.schedule.swap.request', 'employee.schedule.swap.respond',
+                    'schedules.view', 'schedules.manage', 'schedules.swaps.decide'];
                 $expectedPermissionCount = match (true) {
                     in_array('payroll.release', $bindings, true) => 2,
                     in_array('employee.leave.view', $bindings, true) => 8,
                     in_array('employee.tasks.view', $bindings, true) => 11,
+                    in_array('employee.documents.view', $bindings, true) => 5,
+                    in_array('employee.profile.edit', $bindings, true) => 1,
+                    in_array('employee.announcements.view', $bindings, true) => 4,
+                    in_array('employee.directory.view', $bindings, true) => 4,
+                    in_array('employee.assets.view', $bindings, true) => 4,
+                    in_array('employee.expenses.view', $bindings, true) => 7,
+                    in_array('employee.schedule.view', $bindings, true) => 6,
                     default => 6,
                 };
                 if (! str_starts_with($query, 'insert ignore into `permissions`')

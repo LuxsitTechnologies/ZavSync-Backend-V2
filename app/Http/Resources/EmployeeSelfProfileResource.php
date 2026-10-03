@@ -27,6 +27,8 @@ class EmployeeSelfProfileResource extends JsonResource
             'joining_date' => $this->joining_date?->format('Y-m-d'),
             'leaving_date' => $this->leaving_date?->format('Y-m-d'),
             'location' => $this->location,
+            'address' => $this->address,
+            'self_profile_version' => $this->self_profile_version,
         ];
     }
 }

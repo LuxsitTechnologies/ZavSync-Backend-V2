@@ -19,7 +19,7 @@ class Document extends Model
 
     protected function casts(): array
     {
-        return ['size_bytes' => 'integer'];
+        return ['size_bytes' => 'integer', 'employee_released_at' => 'datetime'];
     }
 
     public function company(): BelongsTo

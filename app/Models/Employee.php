@@ -19,7 +19,7 @@ class Employee extends Model
 
     protected function casts(): array
     {
-        return ['joining_date' => 'date:Y-m-d', 'leaving_date' => 'date:Y-m-d'];
+        return ['joining_date' => 'date:Y-m-d', 'leaving_date' => 'date:Y-m-d', 'address' => 'encrypted', 'self_profile_version' => 'integer', 'manager_version' => 'integer'];
     }
 
     public function company(): BelongsTo
@@ -45,5 +45,25 @@ class Employee extends Model
     public function payrollEntries(): HasMany
     {
         return $this->hasMany(PayrollEntry::class);
+    }
+
+    public function emergencyContacts(): HasMany
+    {
+        return $this->hasMany(EmployeeEmergencyContact::class);
+    }
+
+    public function manager(): BelongsTo
+    {
+        return $this->belongsTo(Employee::class, 'manager_employee_id');
+    }
+
+    public function directReports(): HasMany
+    {
+        return $this->hasMany(Employee::class, 'manager_employee_id');
+    }
+
+    public function teamMemberships(): HasMany
+    {
+        return $this->hasMany(EmployeeTeamMembership::class);
     }
 }

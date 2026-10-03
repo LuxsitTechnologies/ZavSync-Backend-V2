@@ -32,7 +32,7 @@ class EmployeeIdentityTest extends TestCase
             ->assertJsonPath('employee.id', $employee->id)->assertJsonPath('employee.status', 'active');
 
         $this->assertSame(
-            ['id', 'employee_code', 'full_name', 'email', 'phone', 'department', 'designation', 'employment_type', 'status', 'joining_date', 'leaving_date', 'location'],
+            ['id', 'employee_code', 'full_name', 'email', 'phone', 'department', 'designation', 'employment_type', 'status', 'joining_date', 'leaving_date', 'location', 'address', 'self_profile_version'],
             array_keys($response->json('employee')),
         );
         $this->assertStringNotContainsString('base_salary', $response->getContent());
@@ -76,13 +76,13 @@ class EmployeeIdentityTest extends TestCase
 
     public function test_resigned_employee_remains_readable_but_cannot_self_edit(): void
     {
-        [$user, $company] = $this->actingAsCompanyUser(['employee.self.view']);
+        [$user, $company] = $this->actingAsCompanyUser(['employee.self.view', 'employee.profile.edit']);
         $employee = $this->employee($company, $user, ['status' => 'resigned']);
         $this->membership($company, $user)->forceFill(['employee_id' => $employee->id])->save();
 
         $this->getJson('/api/v1/employee/me', $this->headers($company))->assertOk()
             ->assertJsonPath('employee.status', 'resigned')->assertJsonPath('self_editable', false);
-        $this->patchJson('/api/v1/employee/me', ['phone' => '123'], $this->headers($company))->assertStatus(405);
+        $this->patchJson('/api/v1/employee/me', ['address' => 'Not allowed', 'version' => 1], $this->headers($company))->assertForbidden();
         $this->assertSame($employee->phone, $employee->fresh()->phone);
     }
 

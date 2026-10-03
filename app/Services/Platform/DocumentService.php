@@ -4,12 +4,14 @@ namespace App\Services\Platform;
 
 use App\Exceptions\PlatformException;
 use App\Models\Company;
+use App\Models\CompanyAnnouncement;
 use App\Models\CrmAccount;
 use App\Models\CrmDeal;
 use App\Models\CrmLead;
 use App\Models\Customer;
 use App\Models\Document;
 use App\Models\Employee;
+use App\Models\EmployeeExpenseClaim;
 use App\Models\EmployeeTask;
 use App\Models\EmployeeTicket;
 use App\Models\InventoryItem;
@@ -37,6 +39,8 @@ class DocumentService
         'crm_account' => CrmAccount::class, 'crm_lead' => CrmLead::class, 'crm_deal' => CrmDeal::class,
         'leave_request' => LeaveRequest::class,
         'employee_task' => EmployeeTask::class, 'employee_ticket' => EmployeeTicket::class,
+        'announcement' => CompanyAnnouncement::class,
+        'expense_claim' => EmployeeExpenseClaim::class,
     ];
 
     public function resolveOwnedEntity(string $companyId, string $type, string $id): Model
