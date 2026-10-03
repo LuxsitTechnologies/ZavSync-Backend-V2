@@ -12,6 +12,7 @@ use App\Models\Document;
 use App\Models\Employee;
 use App\Models\InventoryItem;
 use App\Models\Invoice;
+use App\Models\LeaveRequest;
 use App\Models\PayrollBatch;
 use App\Models\PurchaseOrder;
 use App\Models\Supplier;
@@ -32,6 +33,7 @@ class DocumentService
         'purchase_order' => PurchaseOrder::class, 'supplier_bill' => SupplierBill::class,
         'inventory_item' => InventoryItem::class, 'employee' => Employee::class, 'payroll_batch' => PayrollBatch::class,
         'crm_account' => CrmAccount::class, 'crm_lead' => CrmLead::class, 'crm_deal' => CrmDeal::class,
+        'leave_request' => LeaveRequest::class,
     ];
 
     public function resolveOwnedEntity(string $companyId, string $type, string $id): Model

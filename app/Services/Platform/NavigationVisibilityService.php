@@ -16,6 +16,7 @@ class NavigationVisibilityService
     private const ITEMS = [
         'hrm.employees' => ['Employees', 'payroll', 'payroll.view', 'People'],
         'hrm.attendance' => ['Attendance', 'payroll', 'attendance.view', 'People'],
+        'hrm.leave' => ['Leave', 'payroll', 'leave.view', 'People'],
         'fbr.invoicing' => ['FBR Invoicing', 'invoicing', 'pakistan_fbr.view', 'Finance'],
         'fbr.configuration' => ['FBR Configuration', 'invoicing', 'fbr.configuration.view', 'Finance'],
         'fbr.migrations' => ['FBR Migration Administration', 'invoicing', 'migration.view', 'Finance'],

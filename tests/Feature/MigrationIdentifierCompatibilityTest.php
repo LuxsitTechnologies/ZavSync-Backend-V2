@@ -30,13 +30,15 @@ class MigrationIdentifierCompatibilityTest extends TestCase
             {
                 $reviewedPermissions = ['employee.payroll.view', 'payroll.release',
                     'employee.attendance.view', 'employee.attendance.clock', 'employee.attendance.correction.request',
-                    'attendance.view', 'attendance.manage', 'attendance.corrections.manage'];
+                    'attendance.view', 'attendance.manage', 'attendance.corrections.manage',
+                    'employee.leave.view', 'employee.leave.request', 'employee.leave.cancel',
+                    'leave.view', 'leave.manage', 'leave.approve', 'holiday.view', 'holiday.manage'];
                 if (! str_starts_with($query, 'insert ignore into `permissions`')
-                    || count(array_intersect($reviewedPermissions, $bindings)) !== (in_array('payroll.release', $bindings, true) ? 2 : 6)) {
+                    || count(array_intersect($reviewedPermissions, $bindings)) !== (in_array('payroll.release', $bindings, true) ? 2 : (in_array('employee.leave.view', $bindings, true) ? 8 : 6))) {
                     throw new \LogicException('Static migration audit forbids unexpected database writes.');
                 }
 
-                return in_array('payroll.release', $bindings, true) ? 2 : 6;
+                return in_array('payroll.release', $bindings, true) ? 2 : (in_array('employee.leave.view', $bindings, true) ? 8 : 6);
             }
 
             public function isMaria(): bool

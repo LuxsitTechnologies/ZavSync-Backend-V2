@@ -84,6 +84,8 @@ class DatabaseSeeder extends Seeder
             'employee.self.view', 'employee.links.manage', 'employee.payroll.view',
             'employee.attendance.view', 'employee.attendance.clock', 'employee.attendance.correction.request',
             'attendance.view', 'attendance.manage', 'attendance.corrections.manage',
+            'employee.leave.view', 'employee.leave.request', 'employee.leave.cancel',
+            'leave.view', 'leave.manage', 'leave.approve', 'holiday.view', 'holiday.manage',
             'payroll.view', 'payroll.manage', 'payroll.calculate', 'payroll.review', 'payroll.approve', 'payroll.post', 'payroll.release',
             'payroll.pay', 'payroll.settle-liabilities', 'payroll.reports', 'payroll.configure',
             'crm.view', 'crm.accounts.manage', 'crm.contacts.manage', 'crm.leads.manage', 'crm.deals.manage',

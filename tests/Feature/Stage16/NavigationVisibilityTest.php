@@ -31,7 +31,8 @@ class NavigationVisibilityTest extends TestCase
         $response->assertJsonPath('items.1.presentation_visible', true);
         $this->assertSame('People', $response->json('items.0.group'));
         $this->assertSame('hrm.employees', $response->json('items.0.key'));
-        $this->assertSame(2, $this->item($response->json(), 'fbr.invoicing')['order']);
+        $this->assertSame(3, $this->item($response->json(), 'fbr.invoicing')['order']);
+        $this->assertSame('payroll', $this->item($response->json(), 'hrm.leave')['module_key']);
         $this->assertNull($this->item($response->json(), 'fbr.invoicing')['visibility_override']);
         $this->assertNull($this->item($response->json(), 'accounting.invoices')['visibility_override']);
         $this->assertDatabaseCount('company_navigation_preferences', 0);

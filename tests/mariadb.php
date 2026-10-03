@@ -45,14 +45,14 @@ if ($status !== 0) {
 $temporary = tempnam(sys_get_temp_dir(), 'zavsync-mariadb-phpunit-');
 try {
     $xml->save($temporary);
-    $command = escapeshellarg(PHP_BINARY).' '.escapeshellarg($root.'/vendor/bin/phpunit')
+    $command = escapeshellarg(PHP_BINARY).' -d memory_limit=512M '.escapeshellarg($root.'/vendor/bin/phpunit')
         .' --configuration '.escapeshellarg($temporary).' --do-not-cache-result --fail-on-risky';
     if ($mode === 'stage15') {
         $command .= ' '.escapeshellarg(__DIR__.'/Feature/Stage15');
     }
     if ($mode === 'concurrency') {
         $command .= ' --fail-on-skipped --fail-on-warning --fail-on-phpunit-deprecation --filter '
-            .escapeshellarg('MariaDbConcurrencyTest|MariaDbEmployeeIdentityConcurrencyTest|MariaDbPayrollReleaseConcurrencyTest|MariaDbAttendanceConcurrencyTest|FbrSubmissionLeaseConcurrencyTest|LegacyImportOwnershipConcurrencyTest|TechnicalIdentifierTest|ClaimGenerationTest|LegacyImportGenerationTest|CertificationDateTimeTest|InvoiceCreationRollbackTest|PakistanFbrDomainTest|MigrationIntegrityTest')
+            .escapeshellarg('MariaDbConcurrencyTest|MariaDbEmployeeIdentityConcurrencyTest|MariaDbPayrollReleaseConcurrencyTest|MariaDbAttendanceConcurrencyTest|MariaDbLeaveConcurrencyTest|FbrSubmissionLeaseConcurrencyTest|LegacyImportOwnershipConcurrencyTest|TechnicalIdentifierTest|ClaimGenerationTest|LegacyImportGenerationTest|CertificationDateTimeTest|InvoiceCreationRollbackTest|PakistanFbrDomainTest|MigrationIntegrityTest')
             .' '.escapeshellarg(__DIR__.'/Feature');
     }
     passthru($command, $status);
