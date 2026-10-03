@@ -220,6 +220,7 @@ Route::prefix('v1')->group(function (): void {
             Route::post('hrm/teams/{team}/members', [EmployeeTeamController::class, 'addMember'])->middleware('throttle:sensitive')->name('hrm.teams.members.store');
             Route::delete('hrm/teams/{team}/members/{employee}', [EmployeeTeamController::class, 'removeMember'])->middleware('throttle:sensitive')->name('hrm.teams.members.destroy');
             Route::patch('hrm/teams/{team}/lead', [EmployeeTeamController::class, 'setLead'])->middleware('throttle:sensitive')->name('hrm.teams.lead');
+            Route::get('hrm/employees/{employee}/manager', [EmployeeTeamController::class, 'showManager'])->name('hrm.employees.manager.show');
             Route::patch('hrm/employees/{employee}/manager', [EmployeeTeamController::class, 'setManager'])->middleware('throttle:sensitive')->name('hrm.employees.manager');
             Route::get('employee/schedule', [EmployeeScheduleController::class, 'mySchedule'])->name('employee.schedule.index');
             Route::get('employee/shift-swaps', [EmployeeShiftSwapController::class, 'employeeIndex'])->name('employee.shift-swaps.index');

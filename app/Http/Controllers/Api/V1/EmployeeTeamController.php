@@ -293,6 +293,15 @@ class EmployeeTeamController extends Controller
             'version' => $model->manager_version]);
     }
 
+    public function showManager(Request $request, string $employee): JsonResponse
+    {
+        $companyId = $this->adminAccess($request, 'teams.view');
+        $model = Employee::query()->where('company_id', $companyId)->findOrFail($employee);
+
+        return response()->json(['employee_id' => $model->id, 'manager_employee_id' => $model->manager_employee_id,
+            'version' => $model->manager_version]);
+    }
+
     /** @return array{string, Employee} */
     private function employeeAccess(Request $request, string $permission): array
     {
