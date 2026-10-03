@@ -15,6 +15,7 @@ use App\Models\EmployeeTicketEvent;
 use App\Services\AuditService;
 use App\Services\Platform\NotificationService;
 use Illuminate\Http\Request;
+use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\DB;
 
 class EmployeeWorkService
@@ -252,10 +253,41 @@ class EmployeeWorkService
     /** @return array<string, mixed> */
     public function presentTask(EmployeeTask $task, bool $admin = false): array
     {
+        $assigneeName = Employee::query()->where('company_id', $task->company_id)->whereKey($task->assigned_employee_id)->value('full_name');
+        $creatorName = CompanyUser::query()->with('user:id,name')->where('company_id', $task->company_id)->where('user_id', $task->created_by)->first()?->user?->name;
+
+        return $this->taskPresentation($task, $admin, $creatorName, $assigneeName);
+    }
+
+    /** @param Collection<int, EmployeeTask> $tasks @return array<int, array<string, mixed>> */
+    public function presentTasks(Collection $tasks, bool $admin = false): array
+    {
+        $labels = [];
+        foreach ($tasks->groupBy('company_id') as $companyId => $companyTasks) {
+            $assignees = Employee::query()->where('company_id', $companyId)
+                ->whereIn('id', $companyTasks->pluck('assigned_employee_id')->unique())->pluck('full_name', 'id');
+            $creators = CompanyUser::query()->with('user:id,name')->where('company_id', $companyId)
+                ->whereIn('user_id', $companyTasks->pluck('created_by')->unique())->get()->keyBy('user_id');
+            foreach ($companyTasks as $task) {
+                $labels[$task->id] = [
+                    $creators->get($task->created_by)?->user?->name,
+                    $assignees->get($task->assigned_employee_id),
+                ];
+            }
+        }
+
+        return $tasks->map(fn (EmployeeTask $task): array => $this->taskPresentation($task, $admin, ...$labels[$task->id]))->all();
+    }
+
+    /** @return array<string, mixed> */
+    private function taskPresentation(EmployeeTask $task, bool $admin, ?string $creatorName, ?string $assigneeName): array
+    {
         return ['id' => $task->id, 'title' => $task->title, 'description' => $task->description,
             'priority' => $task->priority, 'due_date' => $task->due_date->toDateString(), 'status' => $task->status,
             'completed_at' => $task->completed_at?->toIso8601String(), 'version' => $task->version,
             'assigned_employee_id' => $admin ? $task->assigned_employee_id : null,
+            'creator_name' => $creatorName ?? 'Unavailable user',
+            'assignee_name' => $assigneeName ?? 'Unavailable employee',
             'created_at' => $task->created_at?->toIso8601String()];
     }
 

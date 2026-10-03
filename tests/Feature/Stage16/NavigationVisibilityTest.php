@@ -38,6 +38,82 @@ class NavigationVisibilityTest extends TestCase
         $this->assertDatabaseCount('company_navigation_preferences', 0);
     }
 
+    public function test_employee_work_navigation_uses_dedicated_permissions_and_payroll_entitlement(): void
+    {
+        [, $company] = $this->actingAsCompanyUser(['employee.tasks.view', 'employee.tickets.view']);
+        $this->subscribe($company, ['payroll', 'crm']);
+
+        $navigation = $this->getJson('/api/v1/platform/navigation', ['X-Company-Id' => $company->id])->assertOk()->json();
+        foreach (['employee.tasks' => 'employee.tasks.view', 'employee.tickets' => 'employee.tickets.view',
+            'hrm.tasks' => 'tasks.view', 'hrm.tickets' => 'tickets.view'] as $key => $permission) {
+            $item = $this->item($navigation, $key);
+            $this->assertSame($permission, $item['required_permission']);
+            $this->assertSame('payroll', $item['module_key']);
+            $this->assertSame('People', $item['group']);
+            $this->assertSame(str_starts_with($key, 'employee.'), $item['effective_visible']);
+        }
+        $this->assertSame('crm', $this->item($navigation, 'crm.tasks')['module_key']);
+        $this->assertSame('crm.view', $this->item($navigation, 'crm.tasks')['required_permission']);
+        $this->assertFalse($this->item($navigation, 'crm.tasks')['effective_visible']);
+        $this->assertSame('hrm.employees', $navigation['items'][0]['key']);
+        $this->assertSame(3, $this->item($navigation, 'fbr.invoicing')['order']);
+        $this->assertSame(['crm', 'payroll'], $this->getJson('/api/v1/auth/me')->assertOk()->json('companies.0.modules'));
+
+        [, $administratorCompany] = $this->actingAsCompanyUser(['tasks.view', 'tickets.view']);
+        $this->subscribe($administratorCompany, ['payroll']);
+        $administratorNavigation = $this->getJson('/api/v1/platform/navigation', ['X-Company-Id' => $administratorCompany->id])->assertOk()->json();
+        $this->assertTrue($this->item($administratorNavigation, 'hrm.tasks')['effective_visible']);
+        $this->assertTrue($this->item($administratorNavigation, 'hrm.tickets')['effective_visible']);
+        $this->assertFalse($this->item($administratorNavigation, 'employee.tasks')['effective_visible']);
+    }
+
+    public function test_work_navigation_show_cannot_grant_permission_or_entitlement_and_hide_does_not_revoke_api(): void
+    {
+        [$user, $company] = $this->actingAsCompanyUser(['platform.settings.manage', 'tasks.view']);
+        $this->subscribe($company, ['payroll']);
+        $user->update(['is_platform_admin' => true]);
+        $headers = ['X-Company-Id' => $company->id];
+
+        $shown = $this->putJson('/api/v1/platform/navigation/employee.tasks', ['is_visible' => true], $headers)->assertOk();
+        $this->assertSame('NOT_AUTHORIZED', $this->item($shown->json(), 'employee.tasks')['unavailable_reason']);
+        $this->assertFalse($this->item($shown->json(), 'employee.tasks')['effective_visible']);
+        $this->assertContains('hrm.tasks', $shown->json('visible_keys'));
+        $hidden = $this->putJson('/api/v1/platform/navigation/hrm.tasks', ['is_visible' => false], $headers)->assertOk();
+        $this->assertSame('HIDDEN_BY_COMPANY', $this->item($hidden->json(), 'hrm.tasks')['unavailable_reason']);
+        $this->getJson('/api/v1/tasks', $headers)->assertOk();
+
+        [, $unentitledCompany] = $this->actingAsCompanyUser(['platform.settings.manage', 'employee.tasks.view', 'employee.tickets.view', 'tasks.view', 'tickets.view']);
+        $this->subscribe($unentitledCompany, ['crm']);
+        $unentitledHeaders = ['X-Company-Id' => $unentitledCompany->id];
+        $unentitled = $this->putJson('/api/v1/platform/navigation/employee.tasks', ['is_visible' => true], $unentitledHeaders)->assertOk();
+        foreach (['employee.tasks', 'employee.tickets', 'hrm.tasks', 'hrm.tickets'] as $key) {
+            $this->assertSame('NOT_ENTITLED', $this->item($unentitled->json(), $key)['unavailable_reason']);
+        }
+        $this->getJson('/api/v1/tasks', $unentitledHeaders)->assertForbidden();
+    }
+
+    public function test_employee_work_navigation_recalculates_on_company_switch(): void
+    {
+        [$user, $companyA] = $this->actingAsCompanyUser(['employee.tasks.view', 'employee.tickets.view']);
+        $this->subscribe($companyA, ['payroll']);
+        $companyB = Company::factory()->create();
+        $this->subscribe($companyB, ['payroll']);
+        $roleB = Role::factory()->for($companyB)->create();
+        $roleB->permissions()->attach(Permission::query()->firstOrCreate(['name' => 'tasks.view']));
+        CompanyUser::query()->create(['company_id' => $companyB->id, 'user_id' => $user->id, 'role_id' => $roleB->id, 'is_active' => true]);
+        CompanyNavigationPreference::factory()->for($companyB)->create(['item_key' => 'hrm.tasks', 'is_visible' => false]);
+
+        $navigationA = $this->postJson('/api/v1/auth/switch-company', ['company_id' => $companyA->id])->assertOk()->json('company.effective_navigation');
+        $this->assertTrue($this->item($navigationA, 'employee.tasks')['effective_visible']);
+        $this->assertTrue($this->item($navigationA, 'employee.tickets')['effective_visible']);
+        $navigationB = $this->postJson('/api/v1/auth/switch-company', ['company_id' => $companyB->id])->assertOk()->json('company.effective_navigation');
+        $this->assertSame('NOT_AUTHORIZED', $this->item($navigationB, 'employee.tasks')['unavailable_reason']);
+        $this->assertSame('NOT_AUTHORIZED', $this->item($navigationB, 'employee.tickets')['unavailable_reason']);
+        $this->assertSame('HIDDEN_BY_COMPANY', $this->item($navigationB, 'hrm.tasks')['unavailable_reason']);
+        $this->assertFalse($this->item($navigationB, 'hrm.tickets')['effective_visible']);
+        $this->assertTrue($this->item($navigationA, 'employee.tasks')['effective_visible']);
+    }
+
     public function test_fbr_can_be_hidden_without_hiding_accounting_or_changing_api_authorization(): void
     {
         [$user, $company] = $this->actingAsCompanyUser(['platform.settings.manage', 'accounting.view', 'pakistan_fbr.view']);

@@ -19,6 +19,7 @@ use App\Models\PlatformNotification;
 use App\Models\Role;
 use App\Models\User;
 use App\Services\Platform\EntitlementService;
+use App\Services\Work\EmployeeWorkService;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Http\UploadedFile;
 use Illuminate\Support\Facades\Storage;
@@ -135,12 +136,70 @@ class EmployeeWorkTest extends TestCase
         [$company, $employee] = $this->context();
         $this->admin();
         $response = $this->postJson('/api/v1/tasks', ['assigned_employee_id' => $employee->id, 'title' => 'Complete onboarding', 'priority' => 'NORMAL', 'due_date' => now()->addWeek()->toDateString()], $this->headers($company, 'firewall-task'))->assertCreated();
-        $this->assertEqualsCanonicalizing(['id', 'title', 'description', 'priority', 'due_date', 'status', 'completed_at', 'version', 'assigned_employee_id', 'created_at'], array_keys($response->json()));
+        $this->assertEqualsCanonicalizing(['id', 'title', 'description', 'priority', 'due_date', 'status', 'completed_at', 'version', 'assigned_employee_id', 'creator_name', 'assignee_name', 'created_at'], array_keys($response->json()));
         $this->employee();
         $this->postJson('/api/v1/employee/tickets', ['subject' => 'Need help', 'description' => 'A support request', 'priority' => 'NORMAL'], $this->headers($company, 'firewall-ticket'))->assertCreated();
         foreach (['payroll_entries', 'attendance_sessions', 'leave_requests', 'invoices', 'journals', 'journal_lines', 'customer_payments', 'bank_transactions', 'inventory_movements', 'crm_activities'] as $table) {
             $this->assertDatabaseCount($table, 0);
         }
+    }
+
+    public function test_task_labels_are_company_scoped_narrow_and_present_on_admin_and_employee_responses(): void
+    {
+        [$company, $employee] = $this->context();
+        $this->admin();
+        $created = $this->postJson('/api/v1/tasks', [
+            'assigned_employee_id' => $employee->id, 'title' => 'Review contract',
+            'priority' => 'NORMAL', 'due_date' => now()->addWeek()->toDateString(),
+        ], $this->headers($company, 'label-task-one'))->assertCreated();
+        $taskId = $created->json('id');
+        foreach ([$created->json(), $this->getJson("/api/v1/tasks/{$taskId}", $this->headers($company))->assertOk()->json(),
+            $this->getJson('/api/v1/tasks', $this->headers($company))->assertOk()->json('data.0')] as $task) {
+            $this->assertSame($this->adminUser->name, $task['creator_name']);
+            $this->assertSame($employee->full_name, $task['assignee_name']);
+            $this->assertSame($employee->id, $task['assigned_employee_id']);
+            $this->assertArrayNotHasKey('creator', $task);
+            $this->assertArrayNotHasKey('employee', $task);
+            $this->assertArrayNotHasKey('email', $task);
+            $this->assertArrayNotHasKey('phone', $task);
+            $this->assertArrayNotHasKey('salary', $task);
+            $this->assertArrayNotHasKey('bank_account', $task);
+        }
+        $this->employee();
+        foreach ([$this->getJson("/api/v1/employee/tasks/{$taskId}", $this->headers($company))->assertOk()->json(),
+            $this->getJson('/api/v1/employee/tasks', $this->headers($company))->assertOk()->json('data.0')] as $task) {
+            $this->assertSame($this->adminUser->name, $task['creator_name']);
+            $this->assertSame($employee->full_name, $task['assignee_name']);
+            $this->assertNull($task['assigned_employee_id']);
+            $this->assertArrayNotHasKey('creator', $task);
+            $this->assertArrayNotHasKey('employee', $task);
+        }
+    }
+
+    public function test_task_labels_fail_closed_for_missing_or_cross_company_identities(): void
+    {
+        [$company, $employee] = $this->context();
+        $otherCompany = Company::factory()->create();
+        $otherEmployee = Employee::factory()->for($otherCompany)->create(['full_name' => 'Other Company Employee']);
+        $otherUser = User::factory()->create(['name' => 'Other Company User']);
+        CompanyUser::query()->create(['company_id' => $otherCompany->id, 'user_id' => $otherUser->id, 'is_active' => true]);
+        $task = EmployeeTask::factory()->create([
+            'company_id' => $company->id, 'assigned_employee_id' => $employee->id, 'created_by' => $otherUser->id,
+        ]);
+        $this->admin();
+        $this->getJson("/api/v1/tasks/{$task->id}", $this->headers($company))->assertOk()
+            ->assertJsonPath('creator_name', 'Unavailable user')->assertJsonPath('assignee_name', $employee->full_name);
+        $this->getJson('/api/v1/tasks', $this->headers($company))->assertOk()
+            ->assertJsonPath('data.0.creator_name', 'Unavailable user');
+
+        $untrustedRelation = $task->replicate();
+        $untrustedRelation->assigned_employee_id = $otherEmployee->id;
+        $presented = app(EmployeeWorkService::class)->presentTask($untrustedRelation);
+        $this->assertSame('Unavailable user', $presented['creator_name']);
+        $this->assertSame('Unavailable employee', $presented['assignee_name']);
+        $this->assertNull($presented['assigned_employee_id']);
+        $this->assertNotSame($otherEmployee->full_name, $presented['assignee_name']);
+        $this->assertNotSame($otherUser->name, $presented['creator_name']);
     }
 
     public function test_unlinked_and_platform_admin_do_not_gain_employee_identity_or_task_authority(): void

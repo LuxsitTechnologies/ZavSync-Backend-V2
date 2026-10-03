@@ -25,7 +25,7 @@ class TaskAdminController extends Controller
         }
         $page = $query->orderBy('due_date')->orderBy('id')->paginate($data['per_page'] ?? 20);
 
-        return response()->json(['data' => $page->getCollection()->map(fn (EmployeeTask $task): array => $this->work->presentTask($task, true))->all(), 'meta' => ['total' => $page->total(), 'current_page' => $page->currentPage(), 'last_page' => $page->lastPage()]]);
+        return response()->json(['data' => $this->work->presentTasks($page->getCollection(), true), 'meta' => ['total' => $page->total(), 'current_page' => $page->currentPage(), 'last_page' => $page->lastPage()]]);
     }
 
     public function store(Request $request): JsonResponse

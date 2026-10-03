@@ -68,6 +68,10 @@ class NavigationVisibilityService
         'outreach.templates' => ['Templates & Composer', 'outreach', 'outreach.templates.manage', 'Intelligence'],
         'outreach.sequences' => ['Sequences & Enrollments', 'outreach', 'outreach.sequences.manage', 'Intelligence'],
         'outreach.tracking' => ['Dashboard & Tracking', 'outreach', 'outreach.reports.view', 'Intelligence'],
+        'employee.tasks' => ['My Tasks', 'payroll', 'employee.tasks.view', 'People'],
+        'employee.tickets' => ['My Tickets', 'payroll', 'employee.tickets.view', 'People'],
+        'hrm.tasks' => ['Tasks', 'payroll', 'tasks.view', 'People'],
+        'hrm.tickets' => ['Tickets', 'payroll', 'tickets.view', 'People'],
     ];
 
     public function __construct(private readonly EntitlementService $entitlements) {}
