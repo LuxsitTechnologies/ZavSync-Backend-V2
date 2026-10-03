@@ -4,6 +4,7 @@ namespace App\Http\Controllers\Api\V1;
 
 use App\Exceptions\PlatformException;
 use App\Http\Controllers\Controller;
+use App\Models\CompanyUser;
 use App\Models\Employee;
 use App\Models\LeaveEntitlement;
 use App\Models\LeaveRequest;
@@ -31,15 +32,16 @@ class LeaveAdminController extends Controller
             }
         }
         $page = $query->orderByDesc('created_at')->orderByDesc('id')->paginate($data['per_page'] ?? 20);
+        $viewerEmployeeId = $this->viewerEmployeeId($request, $companyId);
 
-        return response()->json(['data' => $page->getCollection()->map(fn (LeaveRequest $leave): array => $this->leaves->present($leave))->all(), 'meta' => ['total' => $page->total(), 'current_page' => $page->currentPage(), 'last_page' => $page->lastPage()]]);
+        return response()->json(['data' => $page->getCollection()->map(fn (LeaveRequest $leave): array => $this->leaves->presentForAdmin($leave, $viewerEmployeeId))->all(), 'meta' => ['total' => $page->total(), 'current_page' => $page->currentPage(), 'last_page' => $page->lastPage()]]);
     }
 
     public function show(Request $request, string $leave): JsonResponse
     {
         $companyId = $this->authorize($request, 'leave.view');
 
-        return response()->json($this->leaves->present(LeaveRequest::query()->where('company_id', $companyId)->findOrFail($leave), true));
+        return response()->json($this->leaves->presentForAdmin(LeaveRequest::query()->where('company_id', $companyId)->findOrFail($leave), $this->viewerEmployeeId($request, $companyId), true));
     }
 
     public function types(Request $request): JsonResponse
@@ -145,7 +147,13 @@ class LeaveAdminController extends Controller
         $data = $request->validate(['reason' => [in_array($action, ['REJECT', 'REJECT_CANCELLATION'], true) ? 'required' : 'sometimes', 'string', 'min:5', 'max:2000']]);
         $item = $this->leaves->transition($request, $companyId, $leave, $action, $data['reason'] ?? null);
 
-        return response()->json($this->leaves->present($item, true));
+        return response()->json($this->leaves->presentForAdmin($item, $this->viewerEmployeeId($request, $companyId), true));
+    }
+
+    private function viewerEmployeeId(Request $request, string $companyId): ?string
+    {
+        return CompanyUser::query()->where('company_id', $companyId)->where('user_id', $request->user()->id)
+            ->where('is_active', true)->value('employee_id');
     }
 
     private function authorize(Request $request, string $permission): string

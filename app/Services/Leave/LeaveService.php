@@ -58,6 +58,15 @@ class LeaveService
         return $data;
     }
 
+    /** @return array<string, mixed> */
+    public function presentForAdmin(LeaveRequest $leave, ?string $viewerEmployeeId, bool $includeEvents = false): array
+    {
+        return [
+            ...$this->present($leave, $includeEvents),
+            'is_own_request' => $viewerEmployeeId !== null && $viewerEmployeeId === $leave->employee_id,
+        ];
+    }
+
     /** @param array<string, mixed> $data */
     public function submit(Request $request, string $companyId, string $employeeId, array $data, string $key): LeaveRequest
     {

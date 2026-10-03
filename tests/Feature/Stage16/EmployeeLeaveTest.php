@@ -15,6 +15,7 @@ use App\Models\LeaveType;
 use App\Models\Permission;
 use App\Models\Role;
 use App\Models\User;
+use App\Services\Leave\LeaveService;
 use Carbon\CarbonImmutable;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Http\UploadedFile;
@@ -281,6 +282,72 @@ class EmployeeLeaveTest extends TestCase
         $this->getJson("/api/v1/leave/requests/{$leaveId}", $this->headers($otherCompany))->assertNotFound();
         $this->getJson('/api/v1/leave/holidays', $this->headers($otherCompany))->assertJsonCount(0, 'data');
         $this->patchJson("/api/v1/leave/holidays/{$holidayId}", ['name' => 'Changed'], $this->headers($otherCompany))->assertNotFound();
+    }
+
+    public function test_administrative_leave_responses_identify_own_and_other_requests_without_self_view_permission(): void
+    {
+        [$company, $ownEmployee, $type] = $this->context();
+        $otherEmployee = Employee::factory()->for($company)->create();
+        $own = LeaveRequest::factory()->for($company)->for($ownEmployee)->for($type, 'type')->create();
+        $other = LeaveRequest::factory()->for($company)->for($otherEmployee)->for($type, 'type')->create();
+
+        $rows = collect($this->getJson('/api/v1/leave/requests', $this->headers($company))->assertOk()->json('data'));
+        $this->assertTrue($rows->firstWhere('id', $own->id)['is_own_request']);
+        $this->assertFalse($rows->firstWhere('id', $other->id)['is_own_request']);
+        $this->getJson("/api/v1/leave/requests/{$own->id}", $this->headers($company))->assertOk()->assertJsonPath('is_own_request', true);
+        $detail = $this->getJson("/api/v1/leave/requests/{$other->id}", $this->headers($company))->assertOk()->assertJsonPath('is_own_request', false)->json();
+        $this->assertSame([...array_keys(app(LeaveService::class)->present($other, true)), 'is_own_request'], array_keys($detail));
+        $this->assertArrayNotHasKey('viewer_employee_id', $detail);
+        $this->assertFalse($this->employeeUser->hasCompanyPermission($company->id, 'employee.self.view'));
+    }
+
+    public function test_unlinked_administrator_has_false_ownership_and_cannot_fabricate_it(): void
+    {
+        [$company, $employee, $type] = $this->context();
+        $leave = LeaveRequest::factory()->for($company)->for($employee)->for($type, 'type')->create();
+        $this->admin($company);
+
+        $this->getJson('/api/v1/leave/requests', $this->headers($company))->assertOk()->assertJsonPath('data.0.is_own_request', false);
+        $this->getJson("/api/v1/leave/requests/{$leave->id}", $this->headers($company))->assertOk()->assertJsonPath('is_own_request', false);
+        $this->postJson("/api/v1/leave/requests/{$leave->id}/approve", [], $this->headers($company))
+            ->assertOk()->assertJsonPath('is_own_request', false)->assertJsonPath('status', 'APPROVED');
+        $this->assertSame('APPROVED', $leave->fresh()->status);
+    }
+
+    public function test_platform_administrator_status_does_not_create_leave_employee_identity(): void
+    {
+        [$company, $employee, $type] = $this->context();
+        $leave = LeaveRequest::factory()->for($company)->for($employee)->for($type, 'type')->create();
+        $this->admin($company);
+        $this->adminUser->forceFill(['is_platform_admin' => true])->save();
+
+        $this->getJson("/api/v1/leave/requests/{$leave->id}", $this->headers($company))
+            ->assertOk()->assertJsonPath('is_own_request', false);
+    }
+
+    public function test_ownership_is_scoped_to_current_company_and_does_not_override_approval_authority(): void
+    {
+        [$company, $employee, $type] = $this->context();
+        $leave = LeaveRequest::factory()->for($company)->for($employee)->for($type, 'type')->create();
+        $this->postJson("/api/v1/leave/requests/{$leave->id}/approve", [], $this->headers($company))
+            ->assertForbidden()->assertJsonPath('error_code', 'LEAVE_SELF_APPROVAL_DENIED');
+        $this->assertSame('PENDING', $leave->fresh()->status);
+
+        $otherCompany = Company::factory()->create();
+        $role = Role::query()->create(['company_id' => $otherCompany->id, 'name' => 'Other company leave viewer']);
+        $role->permissions()->attach(Permission::query()->firstOrCreate(['name' => 'leave.view']));
+        CompanyUser::query()->create(['company_id' => $otherCompany->id, 'user_id' => $this->employeeUser->id, 'role_id' => $role->id, 'is_active' => true]);
+        $otherEmployee = Employee::factory()->for($otherCompany)->create();
+        $otherType = LeaveType::factory()->for($otherCompany)->create();
+        $otherLeave = LeaveRequest::factory()->for($otherCompany)->for($otherEmployee)->for($otherType, 'type')->create();
+
+        $this->getJson("/api/v1/leave/requests/{$otherLeave->id}", $this->headers($otherCompany))->assertOk()->assertJsonPath('is_own_request', false);
+        $this->getJson("/api/v1/leave/requests/{$leave->id}", $this->headers($otherCompany))->assertNotFound();
+        $this->getJson('/api/v1/leave/requests', $this->headers($otherCompany))->assertOk()->assertJsonCount(1, 'data');
+        CompanyUser::query()->where('company_id', $otherCompany->id)->where('user_id', $this->employeeUser->id)
+            ->firstOrFail()->forceFill(['employee_id' => $otherEmployee->id])->save();
+        $this->getJson("/api/v1/leave/requests/{$otherLeave->id}", $this->headers($otherCompany))->assertOk()->assertJsonPath('is_own_request', true);
+        $this->getJson("/api/v1/leave/requests/{$leave->id}", $this->headers($company))->assertOk()->assertJsonPath('is_own_request', true);
     }
 
     /** @return array{Company, Employee, LeaveType} */
