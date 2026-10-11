@@ -30,6 +30,23 @@ class CrmAccountContactApiTest extends TestCase
         $this->assertSame(3, AuditLog::query()->where('entity_id', $created['id'])->count());
     }
 
+    public function test_company_account_website_normalizes_bare_domain_on_create_and_update(): void
+    {
+        $context = $this->stage9CrmContext();
+        $headers = $this->headers($context['company']->id);
+
+        $created = $this->postJson('/api/v1/crm/accounts', $this->accountPayload(['website' => 'acme.example/about']), $headers)
+            ->assertSuccessful()->assertJsonPath('website', 'https://acme.example/about');
+        $this->putJson('/api/v1/crm/accounts/'.$created->json('id'), $this->accountPayload(['website' => 'another.example']), $headers)
+            ->assertSuccessful()->assertJsonPath('website', 'https://another.example');
+        foreach (['javascript:alert(1)', 'ftp://acme.example', '//acme.example'] as $website) {
+            $this->postJson('/api/v1/crm/accounts', $this->accountPayload(['website' => $website]), $headers)
+                ->assertUnprocessable()->assertJsonValidationErrors('website');
+        }
+
+        $this->assertDatabaseHas('crm_accounts', ['id' => $created->json('id'), 'website' => 'https://another.example']);
+    }
+
     public function test_contacts_can_be_created_updated_searched_and_only_one_is_primary(): void
     {
         $context = $this->stage9CrmContext();
@@ -80,6 +97,20 @@ class CrmAccountContactApiTest extends TestCase
         $other = CrmAccount::factory()->for($context['company'])->create(['created_by' => $context['user']->id]);
         $this->postJson('/api/v1/crm/accounts/'.$other->id.'/customer-handoff', $this->customerPayload(['idempotency_key' => 'invalid-tax', 'ntn' => '12']), $headers)
             ->assertUnprocessable()->assertJsonValidationErrors('ntn');
+    }
+
+    public function test_customer_handoff_rejects_invalid_phone_without_creating_a_customer(): void
+    {
+        $context = $this->stage9CrmContext();
+        $headers = $this->headers($context['company']->id);
+
+        $this->postJson('/api/v1/crm/accounts/'.$context['account']->id.'/customer-handoff', $this->customerPayload([
+            'idempotency_key' => 'invalid-customer-phone',
+            'phone' => '+92 CALL 1234567',
+        ]), $headers)->assertUnprocessable()->assertJsonValidationErrors('phone');
+
+        $this->assertDatabaseCount('customers', 0);
+        $this->assertDatabaseHas('crm_accounts', ['id' => $context['account']->id, 'customer_id' => null]);
     }
 
     /** @return array<string, mixed> */

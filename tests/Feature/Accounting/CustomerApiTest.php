@@ -33,6 +33,24 @@ class CustomerApiTest extends TestCase
         $this->assertDatabaseCount('customers', 0);
     }
 
+    public function test_customer_phone_preserves_international_format_and_rejects_letters_or_invalid_digit_count(): void
+    {
+        [, $company] = $this->actingAsCompanyUser(['accounting.create', 'accounting.edit']);
+        $headers = ['X-Company-Id' => $company->id];
+
+        $created = $this->postJson('/api/v1/accounting/customers', $this->payload(['phone' => '+92 (300) 123-4567']), $headers)
+            ->assertCreated()->assertJsonPath('phone', '+92 (300) 123-4567');
+        foreach (['+92 CALL 1234567', '123456', '+1234567890123456'] as $phone) {
+            $this->postJson('/api/v1/accounting/customers', $this->payload(['phone' => $phone]), $headers)
+                ->assertUnprocessable()->assertJsonValidationErrors('phone');
+            $this->patchJson('/api/v1/accounting/customers/'.$created->json('id'), $this->payload(['phone' => $phone]), $headers)
+                ->assertUnprocessable()->assertJsonValidationErrors('phone');
+        }
+
+        $this->assertDatabaseCount('customers', 1);
+        $this->assertDatabaseHas('customers', ['id' => $created->json('id'), 'phone' => '+92 (300) 123-4567']);
+    }
+
     public function test_cross_company_customer_read_update_and_delete_return_404(): void
     {
         [$user, $company] = $this->actingAsCompanyUser(['accounting.view', 'accounting.edit']);

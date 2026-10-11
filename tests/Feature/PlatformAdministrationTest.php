@@ -59,6 +59,18 @@ class PlatformAdministrationTest extends TestCase
         $this->assertDatabaseHas('company_user_role', ['company_user_id' => $member->id, 'role_id' => $roleId]);
     }
 
+    public function test_role_administration_listing_retains_archived_company_roles(): void
+    {
+        [, $company] = $this->actingAsCompanyUser(['platform.roles.view']);
+        $archived = Role::factory()->for($company)->create(['name' => 'Archived for audit', 'archived_at' => now()]);
+        $foreign = Role::factory()->create(['name' => 'Foreign role']);
+
+        $response = $this->getJson('/api/v1/platform/roles', ['X-Company-Id' => $company->id])
+            ->assertOk()->assertJsonFragment(['id' => $archived->id, 'name' => 'Archived for audit']);
+        $ids = collect($response->json('roles'))->pluck('id')->all();
+        $this->assertNotContains($foreign->id, $ids);
+    }
+
     public function test_roles_can_be_removed_without_deleting_company_membership(): void
     {
         [, $company] = $this->actingAsCompanyUser(['platform.users.manage']);
@@ -122,6 +134,33 @@ class PlatformAdministrationTest extends TestCase
             ->assertOk()->assertJsonPath('legal_name', 'Updated Legal Name');
         $this->assertDatabaseHas('companies', ['id' => $company->id, 'name' => 'Updated Legal Name']);
         $this->assertDatabaseHas('audit_logs', ['company_id' => $company->id, 'action' => 'settings_updated']);
+    }
+
+    public function test_company_settings_accept_supported_number_formats_independently_of_phone(): void
+    {
+        [, $company] = $this->actingAsCompanyUser(['platform.settings.manage']);
+
+        foreach (['1,234.56', '1.234,56'] as $format) {
+            $this->putJson('/api/v1/platform/settings', ['number_format' => $format, 'phone' => ''], ['X-Company-Id' => $company->id])
+                ->assertOk()->assertJsonPath('number_format', $format);
+            $this->putJson('/api/v1/platform/settings', ['number_format' => $format, 'phone' => '+92 300 1234567'], ['X-Company-Id' => $company->id])
+                ->assertOk()->assertJsonPath('number_format', $format);
+        }
+
+        $this->putJson('/api/v1/platform/settings', ['number_format' => 'not-a-format'], ['X-Company-Id' => $company->id])
+            ->assertUnprocessable()->assertJsonValidationErrors('number_format');
+    }
+
+    public function test_company_website_accepts_bare_domain_as_https_and_rejects_unsafe_schemes(): void
+    {
+        [, $company] = $this->actingAsCompanyUser(['platform.settings.manage']);
+
+        $this->putJson('/api/v1/platform/settings', ['website' => 'example.com/about'], ['X-Company-Id' => $company->id])
+            ->assertOk()->assertJsonPath('website', 'https://example.com/about');
+        foreach (['javascript:alert(1)', 'ftp://example.com', '//example.com', 'example.com\\@evil.test'] as $website) {
+            $this->putJson('/api/v1/platform/settings', ['website' => $website], ['X-Company-Id' => $company->id])
+                ->assertUnprocessable()->assertJsonValidationErrors('website');
+        }
     }
 
     public function test_base_currency_is_locked_after_financial_activity(): void

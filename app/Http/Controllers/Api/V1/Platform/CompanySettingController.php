@@ -10,6 +10,7 @@ use App\Services\Platform\DocumentService;
 use App\Services\Platform\PlatformAccessService;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
+use Illuminate\Validation\Rule;
 use Illuminate\Validation\Rules\File;
 
 class CompanySettingController extends Controller
@@ -28,14 +29,18 @@ class CompanySettingController extends Controller
     {
         $companyId = $this->companyId($request);
         $this->access->authorize($request->user(), $companyId, 'platform.settings.manage');
+        $website = $request->input('website');
+        if (is_string($website) && preg_match('~\A[a-z0-9](?:[a-z0-9.-]*[a-z0-9])?\.[a-z]{2,}(?::[0-9]{1,5})?(?:[/?#][^\s]*)?\z~i', $website)) {
+            $request->merge(['website' => 'https://'.$website]);
+        }
         $data = $request->validate([
             'legal_name' => ['sometimes', 'required', 'string', 'max:255'], 'trading_name' => ['nullable', 'string', 'max:255'],
             'registration_number' => ['nullable', 'string', 'max:100'], 'tax_identifier' => ['nullable', 'string', 'max:100'],
             'cnic' => ['nullable', 'regex:/^\d{5}-\d{7}-\d$/'], 'email' => ['nullable', 'email:rfc', 'max:255'],
-            'phone' => ['nullable', 'string', 'max:40'], 'website' => ['nullable', 'url', 'max:255'], 'address' => ['nullable', 'string', 'max:2000'],
+            'phone' => ['nullable', 'string', 'max:40'], 'website' => ['nullable', 'url:http,https', 'max:255'], 'address' => ['nullable', 'string', 'max:2000'],
             'country_code' => ['sometimes', 'string', 'size:2'], 'timezone' => ['sometimes', 'timezone'], 'base_currency' => ['sometimes', 'string', 'size:3'],
             'date_format' => ['sometimes', 'in:DD/MM/YYYY,MM/DD/YYYY,YYYY-MM-DD'], 'time_format' => ['sometimes', 'in:12h,24h'],
-            'number_format' => ['sometimes', 'in:1,234.56,1.234,56'], 'fiscal_year_start_month' => ['sometimes', 'integer', 'between:1,12'],
+            'number_format' => ['sometimes', Rule::in(['1,234.56', '1.234,56'])], 'fiscal_year_start_month' => ['sometimes', 'integer', 'between:1,12'],
             'default_payment_terms_days' => ['sometimes', 'integer', 'between:0,365'], 'default_warehouse_id' => ['nullable', 'uuid'],
             'default_financial_account_id' => ['nullable', 'uuid'], 'invoice_prefix' => ['sometimes', 'alpha_dash', 'max:20'],
             'purchase_prefix' => ['sometimes', 'alpha_dash', 'max:20'],

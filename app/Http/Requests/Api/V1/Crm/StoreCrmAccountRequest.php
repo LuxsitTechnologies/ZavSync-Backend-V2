@@ -42,6 +42,10 @@ class StoreCrmAccountRequest extends FormRequest
 
     protected function prepareForValidation(): void
     {
+        $website = $this->input('website');
+        if (is_string($website) && preg_match('~\A[a-z0-9](?:[a-z0-9.-]*[a-z0-9])?\.[a-z]{2,}(?::[0-9]{1,5})?(?:[/?#][^\s]*)?\z~i', $website)) {
+            $this->merge(['website' => 'https://'.$website]);
+        }
         $this->merge([
             'ntn' => $this->digitsOrNull($this->input('ntn')), 'cnic' => $this->digitsOrNull($this->input('cnic')),
             'country' => strtoupper((string) ($this->input('country') ?: 'PK')),

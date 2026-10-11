@@ -83,6 +83,48 @@ class PlatformInvitationEntitlementTest extends TestCase
             ->assertForbidden()->assertJsonPath('error_code', 'PERMISSION_DENIED');
     }
 
+    public function test_assignable_role_listing_excludes_archived_foreign_and_ungrantable_roles(): void
+    {
+        [, $company] = $this->actingAsCompanyUser(['platform.invitations.manage']);
+        $grantable = Role::factory()->for($company)->create(['name' => 'Grantable role']);
+        $grantable->permissions()->attach(Permission::query()->where('name', 'platform.invitations.manage')->firstOrFail());
+        $archived = Role::factory()->for($company)->create(['name' => 'Archived role', 'archived_at' => now()]);
+        $privileged = Role::factory()->for($company)->create(['name' => 'Privileged role']);
+        $privileged->permissions()->attach(Permission::query()->firstOrCreate(['name' => 'payroll.post']));
+        $foreign = Role::factory()->create(['name' => 'Foreign role']);
+
+        $response = $this->getJson('/api/v1/platform/invitations/assignable-roles', ['X-Company-Id' => $company->id])
+            ->assertOk()->assertJsonFragment(['id' => $grantable->id, 'name' => 'Grantable role']);
+        $ids = collect($response->json('roles'))->pluck('id')->all();
+        $this->assertNotContains($archived->id, $ids);
+        $this->assertNotContains($privileged->id, $ids);
+        $this->assertNotContains($foreign->id, $ids);
+        $this->assertSame(['id', 'name'], array_keys($response->json('roles.0')));
+    }
+
+    public function test_assignable_role_listing_requires_invitation_permission_and_company_membership(): void
+    {
+        [, $company] = $this->actingAsCompanyUser(['platform.roles.view']);
+
+        $this->getJson('/api/v1/platform/invitations/assignable-roles', ['X-Company-Id' => $company->id])
+            ->assertForbidden()->assertJsonPath('error_code', 'PERMISSION_DENIED');
+        $this->getJson('/api/v1/platform/invitations/assignable-roles', ['X-Company-Id' => Company::factory()->create()->id])
+            ->assertForbidden();
+        $this->app['auth']->forgetGuards();
+        $this->getJson('/api/v1/platform/invitations/assignable-roles', ['X-Company-Id' => $company->id])
+            ->assertUnauthorized();
+    }
+
+    public function test_archived_role_is_not_assignable_to_a_new_invitation(): void
+    {
+        [, $company] = $this->actingAsCompanyUser(['platform.invitations.manage']);
+        $archived = Role::factory()->for($company)->create(['archived_at' => now()]);
+
+        $this->postJson('/api/v1/platform/invitations', ['email' => 'archived-role@example.com', 'role_ids' => [$archived->id]], ['X-Company-Id' => $company->id])
+            ->assertForbidden()->assertJsonPath('error_code', 'TENANT_ACCESS_DENIED');
+        $this->assertDatabaseMissing('company_invitations', ['company_id' => $company->id, 'email' => 'archived-role@example.com']);
+    }
+
     public function test_duplicate_active_invitation_is_rejected(): void
     {
         [, $company] = $this->actingAsCompanyUser(['platform.invitations.manage']);

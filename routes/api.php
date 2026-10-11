@@ -168,6 +168,7 @@ Route::prefix('v1')->group(function (): void {
             Route::post('employee/tickets/{ticket}/attachments', [WorkAttachmentController::class, 'employeeTicketStore'])->middleware('throttle:sensitive')->name('employee.tickets.attachments.store');
             Route::get('employee/tickets/{ticket}/attachments/{document}', [WorkAttachmentController::class, 'employeeTicketDownload'])->name('employee.tickets.attachments.download');
             Route::get('tasks', [TaskAdminController::class, 'index'])->name('tasks.index');
+            Route::get('tasks/assignees', [TaskAdminController::class, 'assignees'])->name('tasks.assignees.index');
             Route::post('tasks', [TaskAdminController::class, 'store'])->middleware('throttle:sensitive')->name('tasks.store');
             Route::get('tasks/{task}', [TaskAdminController::class, 'show'])->name('tasks.show');
             Route::patch('tasks/{task}', [TaskAdminController::class, 'update'])->middleware('throttle:sensitive')->name('tasks.update');
@@ -364,6 +365,7 @@ Route::prefix('v1')->group(function (): void {
             Route::patch('platform/users/{membership}/status', [CompanyUserController::class, 'updateStatus'])->name('platform.users.status');
             Route::delete('platform/users/{membership}', [CompanyUserController::class, 'destroy'])->name('platform.users.destroy');
             Route::get('platform/invitations', [InvitationController::class, 'index'])->name('platform.invitations.index');
+            Route::get('platform/invitations/assignable-roles', [InvitationController::class, 'assignableRoles'])->name('platform.invitations.assignable-roles');
             Route::post('platform/invitations', [InvitationController::class, 'store'])->middleware('throttle:invitations')->name('platform.invitations.store');
             Route::post('platform/invitations/{invitation}/resend', [InvitationController::class, 'resend'])->middleware('throttle:invitations')->name('platform.invitations.resend');
             Route::post('platform/invitations/{invitation}/revoke', [InvitationController::class, 'revoke'])->name('platform.invitations.revoke');

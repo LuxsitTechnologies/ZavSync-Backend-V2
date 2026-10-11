@@ -3,6 +3,7 @@
 namespace App\Http\Controllers\Api\V1;
 
 use App\Http\Controllers\Controller;
+use App\Models\Employee;
 use App\Models\EmployeeTask;
 use App\Services\Work\EmployeeWorkAccess;
 use App\Services\Work\EmployeeWorkService;
@@ -26,6 +27,30 @@ class TaskAdminController extends Controller
         $page = $query->orderBy('due_date')->orderBy('id')->paginate($data['per_page'] ?? 20);
 
         return response()->json(['data' => $this->work->presentTasks($page->getCollection(), true), 'meta' => ['total' => $page->total(), 'current_page' => $page->currentPage(), 'last_page' => $page->lastPage()]]);
+    }
+
+    public function assignees(Request $request): JsonResponse
+    {
+        $companyId = $this->access->company($request, 'tasks.assign');
+        $data = $request->validate(['search' => ['sometimes', 'string', 'max:100'], 'per_page' => ['sometimes', 'integer', 'between:1,50']]);
+        $query = Employee::query()->where('company_id', $companyId)
+            ->whereRaw('LOWER(status) NOT IN (?, ?)', ['resigned', 'terminated']);
+        if (isset($data['search']) && $data['search'] !== '') {
+            $search = $data['search'];
+            $query->where(function ($query) use ($data, $search): void {
+                $query->where('id', $data['search'])
+                    ->orWhere('employee_code', 'like', '%'.$search.'%')
+                    ->orWhere('full_name', 'like', '%'.$search.'%');
+            });
+        }
+        $page = $query->orderBy('full_name')->orderBy('id')->paginate($data['per_page'] ?? 20, ['id', 'employee_code', 'full_name', 'status']);
+
+        return response()->json(['data' => $page->getCollection()->map(fn (Employee $employee): array => [
+            'id' => $employee->id,
+            'employee_code' => $employee->employee_code,
+            'full_name' => $employee->full_name,
+            'status' => $employee->status,
+        ])->all(), 'meta' => ['total' => $page->total(), 'current_page' => $page->currentPage(), 'last_page' => $page->lastPage()]]);
     }
 
     public function store(Request $request): JsonResponse

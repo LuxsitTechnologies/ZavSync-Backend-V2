@@ -2,6 +2,7 @@
 
 namespace App\Support;
 
+use App\Rules\CustomerPhone;
 use App\Rules\PakistanCnic;
 use App\Rules\PakistanNtn;
 use Illuminate\Validation\Rule;
@@ -15,7 +16,7 @@ class CustomerValidation
             'name' => [$required, 'string', 'max:255'], 'legal_name' => ['nullable', 'string', 'max:255'],
             'type' => [$required, 'in:business,individual,government'], 'ntn' => ['nullable', new PakistanNtn],
             'cnic' => ['nullable', new PakistanCnic], 'strn' => ['nullable', 'string', 'max:30'],
-            'email' => ['nullable', 'email', 'max:255'], 'phone' => ['nullable', 'string', 'max:40'],
+            'email' => ['nullable', 'email', 'max:255'], 'phone' => ['nullable', 'string', 'max:40', new CustomerPhone],
             'billing_address' => ['nullable', 'string', 'max:2000'], 'city' => ['nullable', 'string', 'max:255'],
             'province' => ['nullable', 'string', 'max:255'], 'country' => [$required, 'string', 'size:2'],
             'postal_code' => ['nullable', 'string', 'max:20'], 'contact_person' => ['nullable', 'string', 'max:255'],

@@ -231,6 +231,48 @@ class EmployeeWorkTest extends TestCase
         $this->postJson('/api/v1/tasks', $payload, $this->headers($company, 'task-key-three'))->assertForbidden();
     }
 
+    public function test_task_assignee_lookup_is_minimal_authorized_and_company_scoped(): void
+    {
+        [$company, $employee] = $this->context();
+        $second = Employee::factory()->for($company)->create(['full_name' => 'Searchable Assignee', 'employee_code' => 'SEARCH-1']);
+        Employee::factory()->for($company)->create(['status' => 'terminated']);
+        $foreign = Employee::factory()->create(['full_name' => 'Searchable Foreign']);
+        $this->admin();
+
+        $response = $this->getJson('/api/v1/tasks/assignees?search=SEARCH-1', $this->headers($company))
+            ->assertOk()->assertJsonCount(1, 'data')->assertJsonPath('data.0.id', $second->id);
+        $this->assertEqualsCanonicalizing(['id', 'employee_code', 'full_name', 'status'], array_keys($response->json('data.0')));
+        $this->getJson("/api/v1/tasks/assignees?search={$employee->id}", $this->headers($company))
+            ->assertOk()->assertJsonPath('data.0.id', $employee->id);
+        $this->getJson('/api/v1/tasks/assignees?per_page=101', $this->headers($company))
+            ->assertUnprocessable()->assertJsonValidationErrors('per_page');
+        $this->getJson('/api/v1/tasks/assignees', $this->headers($company))->assertOk()->assertJsonCount(2, 'data');
+        $this->getJson("/api/v1/tasks/assignees?search={$foreign->id}", $this->headers($company))
+            ->assertOk()->assertJsonCount(0, 'data');
+        $this->getJson('/api/v1/tasks/assignees', $this->headers($foreign->company))->assertForbidden();
+
+        $role = Role::query()->where('company_id', $company->id)->where('name', 'Work administrator')->firstOrFail();
+        $role->permissions()->detach(Permission::query()->where('name', 'tasks.assign')->firstOrFail()->id);
+        $this->getJson('/api/v1/tasks/assignees', $this->headers($company))->assertForbidden();
+        $this->employee();
+        $this->getJson('/api/v1/tasks/assignees', $this->headers($company))->assertForbidden();
+    }
+
+    public function test_task_assignee_lookup_paginates_and_falls_back_to_first_page_for_invalid_page_input(): void
+    {
+        [$company] = $this->context();
+        Employee::factory()->for($company)->count(2)->create();
+        $this->admin();
+
+        $this->getJson('/api/v1/tasks/assignees?per_page=1&page=2', $this->headers($company))
+            ->assertOk()->assertJsonCount(1, 'data')->assertJsonPath('meta.total', 3)
+            ->assertJsonPath('meta.current_page', 2)->assertJsonPath('meta.last_page', 3);
+        $this->getJson('/api/v1/tasks/assignees?per_page=1&page=invalid', $this->headers($company))
+            ->assertOk()->assertJsonPath('meta.current_page', 1);
+        $this->getJson('/api/v1/tasks/assignees?search='.str_repeat('x', 101), $this->headers($company))
+            ->assertUnprocessable()->assertJsonValidationErrors('search');
+    }
+
     public function test_comments_and_attachments_are_scoped_to_parent_and_safe_to_retry(): void
     {
         [$company, $employee] = $this->context();

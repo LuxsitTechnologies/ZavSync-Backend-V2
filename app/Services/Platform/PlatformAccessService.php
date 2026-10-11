@@ -6,6 +6,7 @@ use App\Exceptions\PlatformException;
 use App\Models\CompanyUser;
 use App\Models\Role;
 use App\Models\User;
+use Illuminate\Support\Collection;
 
 class PlatformAccessService
 {
@@ -35,6 +36,20 @@ class PlatformAccessService
             ->all();
     }
 
+    /** @return Collection<int, Role> */
+    public function assignableRoles(User $user, string $companyId): Collection
+    {
+        $roles = Role::query()->with('permissions:id')->where('company_id', $companyId)
+            ->whereNull('archived_at')->orderBy('name')->orderBy('id')->get(['id', 'company_id', 'name']);
+        if ($user->hasCompanyPermission($companyId, '*')) {
+            return $roles;
+        }
+
+        $ownedPermissionIds = $this->ownedPermissionIds($user, $companyId);
+
+        return $roles->filter(fn (Role $role): bool => $role->permissions->pluck('id')->diff($ownedPermissionIds)->isEmpty())->values();
+    }
+
     /** @param array<int, int> $roleIds */
     public function assertCanAssignRoles(User $user, string $companyId, array $roleIds): void
     {
@@ -46,14 +61,20 @@ class PlatformAccessService
             return;
         }
 
-        $actor = CompanyUser::query()->with(['role.permissions:id', 'roles.permissions:id'])
-            ->where('company_id', $companyId)->where('user_id', $user->id)->where('is_active', true)->firstOrFail();
-        $ownedPermissionIds = collect([$actor->role])->merge($actor->roles)->filter()
-            ->flatMap(fn ($role) => $role->permissions)->pluck('id')->unique();
         $grantedPermissionIds = $roles->flatMap(fn (Role $role) => $role->permissions)->pluck('id')->unique();
 
-        if ($grantedPermissionIds->diff($ownedPermissionIds)->isNotEmpty()) {
+        if ($grantedPermissionIds->diff($this->ownedPermissionIds($user, $companyId))->isNotEmpty()) {
             throw new PlatformException('PRIVILEGE_ESCALATION_DENIED', 'You cannot assign permissions you do not hold.', 403);
         }
+    }
+
+    /** @return array<int, int> */
+    private function ownedPermissionIds(User $user, string $companyId): array
+    {
+        $actor = CompanyUser::query()->with(['role.permissions:id', 'roles.permissions:id'])
+            ->where('company_id', $companyId)->where('user_id', $user->id)->where('is_active', true)->firstOrFail();
+
+        return collect([$actor->role])->merge($actor->roles)->filter()
+            ->flatMap(fn ($role) => $role->permissions)->pluck('id')->unique()->all();
     }
 }

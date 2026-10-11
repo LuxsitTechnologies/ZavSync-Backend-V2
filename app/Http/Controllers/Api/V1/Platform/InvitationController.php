@@ -5,6 +5,7 @@ namespace App\Http\Controllers\Api\V1\Platform;
 use App\Http\Controllers\Controller;
 use App\Jobs\SendCompanyInvitation;
 use App\Models\CompanyInvitation;
+use App\Models\Role;
 use App\Services\AuditService;
 use App\Services\Platform\InvitationService;
 use App\Services\Platform\PlatformAccessService;
@@ -22,6 +23,15 @@ class InvitationController extends Controller
         $this->access->authorize($request->user(), $companyId, 'platform.users.view');
 
         return response()->json(CompanyInvitation::query()->with('inviter:id,name')->where('company_id', $companyId)->latest()->paginate(25));
+    }
+
+    public function assignableRoles(Request $request): JsonResponse
+    {
+        $companyId = $this->companyId($request);
+        $this->access->authorize($request->user(), $companyId, 'platform.invitations.manage');
+
+        return response()->json(['roles' => $this->access->assignableRoles($request->user(), $companyId)
+            ->map(fn (Role $role): array => ['id' => $role->id, 'name' => $role->name])->all()]);
     }
 
     public function store(Request $request): JsonResponse
