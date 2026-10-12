@@ -85,6 +85,7 @@ use App\Http\Controllers\Api\V1\Outreach\OutreachPublicController;
 use App\Http\Controllers\Api\V1\Outreach\OutreachReportController;
 use App\Http\Controllers\Api\V1\Outreach\OutreachSequenceController;
 use App\Http\Controllers\Api\V1\Outreach\OutreachSuppressionController;
+use App\Http\Controllers\Api\V1\Payroll\EmployeeBeneficiaryAccountController;
 use App\Http\Controllers\Api\V1\Payroll\EmployeeController;
 use App\Http\Controllers\Api\V1\Payroll\EmployeePayrollProfileController;
 use App\Http\Controllers\Api\V1\Payroll\PayrollBatchController;
@@ -531,6 +532,10 @@ Route::prefix('v1')->group(function (): void {
             Route::get('payroll/employees/{employee}/profiles', [EmployeePayrollProfileController::class, 'index'])->name('payroll.employee-profiles.index');
             Route::post('payroll/employees/{employee}/profiles', [EmployeePayrollProfileController::class, 'store'])->name('payroll.employee-profiles.store');
             Route::get('payroll/employees/{employee}/profiles/{profile}', [EmployeePayrollProfileController::class, 'show'])->name('payroll.employee-profiles.show');
+            Route::get('payroll/employees/{employee}/beneficiary-account', [EmployeeBeneficiaryAccountController::class, 'show'])->name('payroll.employee-beneficiary.show');
+            Route::post('payroll/employees/{employee}/beneficiary-account', [EmployeeBeneficiaryAccountController::class, 'store'])->middleware('throttle:sensitive')->name('payroll.employee-beneficiary.store');
+            Route::put('payroll/employees/{employee}/beneficiary-account/{account}', [EmployeeBeneficiaryAccountController::class, 'update'])->middleware('throttle:sensitive')->name('payroll.employee-beneficiary.update');
+            Route::delete('payroll/employees/{employee}/beneficiary-account/{account}', [EmployeeBeneficiaryAccountController::class, 'destroy'])->middleware('throttle:sensitive')->name('payroll.employee-beneficiary.destroy');
             Route::apiResource('payroll/employees', EmployeeController::class)->only(['index', 'store', 'show', 'update'])->names('payroll.employees');
             Route::apiResource('payroll/periods', PayrollPeriodController::class)->only(['index', 'store', 'show'])->names('payroll.periods');
             Route::post('payroll/batches/{batch}/calculate', [PayrollBatchController::class, 'calculate'])->name('payroll.batches.calculate');

@@ -2,6 +2,7 @@
 
 namespace Tests\Feature\Stage16;
 
+use App\Exceptions\PlatformException;
 use App\Http\Controllers\Api\V1\EmployeeScheduleController;
 use App\Models\Company;
 use App\Models\CompanyUser;
@@ -15,6 +16,8 @@ use App\Models\EmployeeShiftSwapEvent;
 use App\Models\Permission;
 use App\Models\Role;
 use App\Models\User;
+use App\Services\Scheduling\ShiftInterval;
+use Carbon\CarbonImmutable;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Http\Request;
 use Laravel\Sanctum\Sanctum;
@@ -113,7 +116,7 @@ class EmployeeScheduleTest extends TestCase
         $this->assertDatabaseCount('employee_shift_assignments', 1);
     }
 
-    public function test_shift_creation_is_exactly_idempotent_and_overnight_or_unauthorized_creation_is_rejected(): void
+    public function test_shift_creation_is_exactly_idempotent_and_overnight_is_authorized(): void
     {
         [$company, $admin, $employeeUser] = $this->context();
         Sanctum::actingAs($admin);
@@ -125,10 +128,55 @@ class EmployeeScheduleTest extends TestCase
         $this->postJson('/api/v1/hrm/shifts', [...$payload, 'name' => 'Changed'], $this->headers($company, 'shift-exact-key'))
             ->assertConflict()->assertJsonPath('error_code', 'SCHEDULE_IDEMPOTENCY_CONFLICT');
         $this->postJson('/api/v1/hrm/shifts', ['name' => 'Overnight', 'start_time' => '22:00', 'end_time' => '06:00'],
-            $this->headers($company, 'shift-overnight-key'))->assertUnprocessable();
+            $this->headers($company, 'shift-overnight-key'))->assertCreated()->assertJsonPath('ends_next_day', true);
+        $this->postJson('/api/v1/hrm/shifts', ['name' => 'Zero', 'start_time' => '22:00', 'end_time' => '22:00'],
+            $this->headers($company, 'shift-zero-key'))->assertUnprocessable();
         Sanctum::actingAs($employeeUser);
         $this->postJson('/api/v1/hrm/shifts', $payload, $this->headers($company, 'shift-employee-key'))->assertForbidden();
-        $this->assertDatabaseCount('employee_shifts', 1);
+        $this->assertDatabaseCount('employee_shifts', 2);
+    }
+
+    public function test_overnight_assignment_blocks_next_date_overlap_and_accepts_adjacent_shift(): void
+    {
+        [$company, $admin, , $employee] = $this->context();
+        $date = now($company->timezone)->addDays(7)->toDateString();
+        $next = CarbonImmutable::parse($date, 'UTC')->addDay()->toDateString();
+        Sanctum::actingAs($admin);
+        $night = $this->postJson('/api/v1/hrm/shifts', ['name' => 'Night', 'start_time' => '22:00', 'end_time' => '06:00'],
+            $this->headers($company, 'night-shift-key'))->assertCreated()->json('id');
+        $overlap = $this->postJson('/api/v1/hrm/shifts', ['name' => 'Overlap', 'start_time' => '05:00', 'end_time' => '07:00'],
+            $this->headers($company, 'overlap-shift-key'))->assertCreated()->json('id');
+        $adjacent = $this->postJson('/api/v1/hrm/shifts', ['name' => 'Adjacent', 'start_time' => '06:00', 'end_time' => '08:00'],
+            $this->headers($company, 'adjacent-shift-key'))->assertCreated()->json('id');
+        $rota = $this->postJson('/api/v1/hrm/rotas', ['name' => 'Night rota', 'start_date' => $date, 'end_date' => $next],
+            $this->headers($company, 'night-rota-key'))->assertCreated()->json('id');
+        $nightSlot = $this->postJson("/api/v1/hrm/rotas/{$rota}/slots", ['shift_id' => $night, 'shift_date' => $date,
+            'required_coverage' => 1], $this->headers($company, 'night-slot-key'))->assertCreated()
+            ->assertJsonPath('ends_next_day', true)->json('id');
+        $overlapSlot = $this->postJson("/api/v1/hrm/rotas/{$rota}/slots", ['shift_id' => $overlap, 'shift_date' => $next,
+            'required_coverage' => 1], $this->headers($company, 'overlap-slot-key'))->assertCreated()->json('id');
+        $adjacentSlot = $this->postJson("/api/v1/hrm/rotas/{$rota}/slots", ['shift_id' => $adjacent, 'shift_date' => $next,
+            'required_coverage' => 1], $this->headers($company, 'adjacent-slot-key'))->assertCreated()->json('id');
+        $this->postJson("/api/v1/hrm/rota-slots/{$nightSlot}/assignments", ['employee_id' => $employee->id],
+            $this->headers($company, 'night-assignment-key'))->assertCreated();
+        $this->postJson("/api/v1/hrm/rota-slots/{$overlapSlot}/assignments", ['employee_id' => $employee->id],
+            $this->headers($company, 'overlap-assignment-key'))->assertConflict()->assertJsonPath('error_code', 'SCHEDULE_ASSIGNMENT_CONFLICT');
+        $this->postJson("/api/v1/hrm/rota-slots/{$adjacentSlot}/assignments", ['employee_id' => $employee->id],
+            $this->headers($company, 'adjacent-assignment-key'))->assertCreated();
+        $this->assertDatabaseCount('employee_shift_assignments', 2);
+    }
+
+    public function test_dst_missing_and_ambiguous_local_shift_boundaries_are_rejected(): void
+    {
+        $interval = app(ShiftInterval::class);
+        foreach (['2027-03-14' => ['01:30', '02:30'], '2027-11-07' => ['01:30', '03:00']] as $date => [$start, $end]) {
+            try {
+                $interval->resolve($date, $start, $end, 'America/New_York');
+                $this->fail('A nonexistent or ambiguous local boundary must be rejected.');
+            } catch (PlatformException $exception) {
+                $this->assertSame('SCHEDULE_LOCAL_TIME_INVALID', $exception->errorCode);
+            }
+        }
     }
 
     public function test_schedule_factories_preserve_company_foreign_keys(): void

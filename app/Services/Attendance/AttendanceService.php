@@ -8,20 +8,22 @@ use App\Models\AttendanceIdempotency;
 use App\Models\AttendanceSession;
 use App\Models\Company;
 use App\Models\Employee;
+use App\Models\EmployeeShiftAssignment;
 use App\Services\AuditService;
+use App\Services\Scheduling\ShiftInterval;
 use Carbon\CarbonImmutable;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
 
 class AttendanceService
 {
-    public function __construct(private readonly AuditService $audit) {}
+    public function __construct(private readonly AuditService $audit, private readonly ShiftInterval $shiftInterval) {}
 
     /** @return array<string, mixed> */
     public function status(string $companyId, string $employeeId): array
     {
         $timezone = (string) Company::query()->whereKey($companyId)->value('timezone');
-        $workDate = CarbonImmutable::now('UTC')->setTimezone($timezone)->toDateString();
+        $workDate = $this->workDate($companyId, $employeeId, CarbonImmutable::now('UTC'), $timezone);
         $session = AttendanceSession::query()->where('company_id', $companyId)->where('employee_id', $employeeId)
             ->where('active_employee_id', $employeeId)->with('breaks')->first();
         if ($session === null) {
@@ -78,7 +80,7 @@ class AttendanceService
                 $timezone = Company::query()->whereKey($companyId)->value('timezone');
                 $session = AttendanceSession::query()->create([
                     'company_id' => $companyId, 'employee_id' => $employeeId, 'active_employee_id' => $employeeId,
-                    'work_date' => $instant->setTimezone($timezone)->toDateString(), 'timezone' => $timezone,
+                    'work_date' => $this->workDate($companyId, $employeeId, $instant, $timezone), 'timezone' => $timezone,
                     'state' => 'CLOCKED_IN', 'clock_in_at' => $instant, 'created_by' => $request->user()->id,
                 ]);
             } elseif ($action === 'CLOCK_OUT') {
@@ -159,5 +161,33 @@ class AttendanceService
             'corrected' => $latest !== null, 'revision_number' => $latest?->revision_number ?? 0,
             'provenance' => $session->provenance,
         ];
+    }
+
+    public function workDate(string $companyId, string $employeeId, CarbonImmutable $instant, string $timezone): string
+    {
+        $today = $instant->setTimezone($timezone)->toDateString();
+        $assignments = EmployeeShiftAssignment::query()
+            ->join('employee_rota_slots as slots', 'slots.id', '=', 'employee_shift_assignments.employee_rota_slot_id')
+            ->join('employee_rotas as rotas', 'rotas.id', '=', 'slots.employee_rota_id')
+            ->where('employee_shift_assignments.company_id', $companyId)
+            ->where('employee_shift_assignments.employee_id', $employeeId)
+            ->where('rotas.status', 'PUBLISHED')
+            ->whereBetween('slots.shift_date', [CarbonImmutable::parse($today, 'UTC')->subDays(2)->toDateString(),
+                CarbonImmutable::parse($today, 'UTC')->addDay()->toDateString()])
+            ->get(['slots.shift_date', 'slots.start_time', 'slots.end_time', 'rotas.timezone']);
+        foreach ($assignments as $assignment) {
+            $date = substr((string) $assignment->shift_date, 0, 10);
+            if ($assignment->end_time >= $assignment->start_time
+                || CarbonImmutable::parse($date, 'UTC')->addDay()->toDateString() !== $instant->setTimezone($assignment->timezone)->toDateString()) {
+                continue;
+            }
+            [$start, $end] = $this->shiftInterval->resolve($date, $assignment->start_time,
+                $assignment->end_time, $assignment->timezone);
+            if ($instant >= $start && $instant < $end) {
+                return $date;
+            }
+        }
+
+        return $today;
     }
 }

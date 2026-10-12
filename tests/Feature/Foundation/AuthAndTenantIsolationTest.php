@@ -6,15 +6,44 @@ use App\Models\Account;
 use App\Models\Company;
 use App\Models\CompanyUser;
 use App\Models\Permission;
+use App\Models\Plan;
 use App\Models\Role;
 use App\Models\User;
 use Illuminate\Foundation\Testing\RefreshDatabase;
+use Illuminate\Support\Facades\Auth;
 use Laravel\Sanctum\Sanctum;
 use Tests\TestCase;
 
 class AuthAndTenantIsolationTest extends TestCase
 {
     use RefreshDatabase;
+
+    public function test_stateful_login_can_onboard_switch_company_and_logout(): void
+    {
+        config()->set('sanctum.stateful', ['frontend.example.test']);
+        $user = User::factory()->create(['email' => 'new-company@example.test']);
+        $plan = Plan::factory()->create();
+        $headers = ['Origin' => 'https://frontend.example.test'];
+
+        $this->postJson('/api/v1/auth/login', ['email' => $user->email, 'password' => 'password'], $headers)
+            ->assertOk()->assertJsonPath('user.id', $user->id)->assertJsonCount(0, 'companies');
+        $this->getJson('/api/v1/auth/me', $headers)->assertOk()->assertJsonCount(0, 'companies');
+
+        $companyId = $this->postJson('/api/v1/platform/companies', [
+            'name' => 'New Company', 'currency' => 'PKR', 'timezone' => 'Asia/Karachi',
+            'country_code' => 'PK', 'plan_id' => $plan->id,
+        ], $headers)->assertCreated()->json('company.id');
+        $this->assertDatabaseHas('company_users', ['company_id' => $companyId, 'user_id' => $user->id, 'is_active' => true]);
+
+        $this->postJson('/api/v1/auth/switch-company', ['company_id' => $companyId], $headers)
+            ->assertOk()->assertJsonPath('company.id', $companyId);
+        $this->getJson('/api/v1/auth/me', $headers)->assertOk()->assertJsonPath('companies.0.id', $companyId);
+
+        $this->postJson('/api/v1/auth/logout', [], $headers)->assertOk();
+        $this->assertFalse(Auth::guard('web')->check());
+        $this->app['auth']->forgetGuards();
+        $this->getJson('/api/v1/auth/me', $headers)->assertUnauthorized();
+    }
 
     public function test_unauthenticated_employee_api_request_without_json_accept_returns_safe_json_401(): void
     {

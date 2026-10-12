@@ -52,6 +52,11 @@ class Employee extends Model
         return $this->hasMany(EmployeeEmergencyContact::class);
     }
 
+    public function beneficiaryAccount(): HasOne
+    {
+        return $this->hasOne(EmployeeBeneficiaryAccount::class);
+    }
+
     public function manager(): BelongsTo
     {
         return $this->belongsTo(Employee::class, 'manager_employee_id');

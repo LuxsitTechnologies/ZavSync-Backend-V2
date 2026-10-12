@@ -111,7 +111,9 @@ class AttendanceCorrectionService
         $in = $this->instant($data['clock_in_at']);
         $out = $this->instant($data['clock_out_at']);
         $elapsed = $out->getTimestamp() - $in->getTimestamp();
-        if ($elapsed <= 0 || $elapsed > 4294967295 || $in->setTimezone($session->timezone)->toDateString() !== $session->work_date->format('Y-m-d')) {
+        if ($elapsed <= 0 || $elapsed > 4294967295
+            || $this->attendance->workDate($session->company_id, $session->employee_id, $in, $session->timezone)
+                !== $session->work_date->format('Y-m-d')) {
             throw new PlatformException('ATTENDANCE_CORRECTION_INVALID', 'Corrected times must be ordered and retain the session work date.', 422);
         }
 

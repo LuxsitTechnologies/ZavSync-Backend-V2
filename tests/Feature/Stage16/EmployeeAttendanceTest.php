@@ -10,6 +10,9 @@ use App\Models\Company;
 use App\Models\CompanyEntitlement;
 use App\Models\CompanyUser;
 use App\Models\Employee;
+use App\Models\EmployeeRota;
+use App\Models\EmployeeRotaSlot;
+use App\Models\EmployeeShiftAssignment;
 use App\Models\Journal;
 use App\Models\PayrollEntry;
 use App\Models\Permission;
@@ -71,6 +74,38 @@ class EmployeeAttendanceTest extends TestCase
             ->assertOk()->assertJsonPath('effective.worked_seconds', 28800);
         $this->getJson('/api/v1/employee/attendance/calendar?month=2026-10', $this->headers($company))
             ->assertOk()->assertJsonPath('days.0.date', '2026-10-31');
+    }
+
+    public function test_published_assigned_overnight_interval_owns_prior_work_date_only_inside_the_interval(): void
+    {
+        [$company, $employee] = $this->context();
+        $company->update(['timezone' => 'Asia/Karachi']);
+        $rota = EmployeeRota::factory()->create(['company_id' => $company->id, 'start_date' => '2026-10-31',
+            'end_date' => '2026-10-31', 'timezone' => 'Asia/Karachi']);
+        $slot = EmployeeRotaSlot::factory()->create(['company_id' => $company->id, 'employee_rota_id' => $rota->id,
+            'shift_date' => '2026-10-31', 'start_time' => '22:00', 'end_time' => '06:00']);
+        EmployeeShiftAssignment::factory()->create(['company_id' => $company->id,
+            'employee_rota_slot_id' => $slot->id, 'employee_id' => $employee->id]);
+
+        $this->travelTo(CarbonImmutable::parse('2026-10-31T22:30:00Z'));
+        $this->getJson('/api/v1/employee/attendance/status', $this->headers($company))
+            ->assertOk()->assertJsonPath('work_date', '2026-11-01');
+        $rota->forceFill(['status' => 'PUBLISHED'])->save();
+        $this->getJson('/api/v1/employee/attendance/status', $this->headers($company))
+            ->assertOk()->assertJsonPath('work_date', '2026-10-31');
+        $sessionId = $this->postJson('/api/v1/employee/attendance/clock-in', [], $this->headers($company, 'overnight-in'))
+            ->assertOk()->assertJsonPath('work_date', '2026-10-31')->json('id');
+        $this->travelTo(CarbonImmutable::parse('2026-11-01T01:00:00Z'));
+        $this->postJson('/api/v1/employee/attendance/clock-out', [], $this->headers($company, 'overnight-out'))
+            ->assertOk()->assertJsonPath('work_date', '2026-10-31');
+        $this->getJson('/api/v1/employee/attendance/status', $this->headers($company))
+            ->assertOk()->assertJsonPath('work_date', '2026-11-01');
+        $this->postJson("/api/v1/employee/attendance/{$sessionId}/corrections", [
+            'clock_in_at' => '2026-10-31T22:35:00Z', 'clock_out_at' => '2026-11-01T01:00:00Z',
+            'breaks' => [], 'reason' => 'Correct the exact overnight start time.',
+        ], $this->headers($company, 'overnight-correction'))->assertCreated();
+        $this->assertDatabaseCount('journals', 0);
+        $this->assertDatabaseCount('payroll_entries', 0);
     }
 
     public function test_correction_approval_keeps_original_evidence_and_decides_once(): void

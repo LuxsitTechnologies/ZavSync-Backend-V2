@@ -14,6 +14,7 @@ use App\Models\EmployeeShiftAssignment;
 use App\Services\AuditService;
 use App\Services\Platform\NotificationService;
 use App\Services\Scheduling\EmployeeScheduleService;
+use App\Services\Scheduling\ShiftInterval;
 use Carbon\CarbonImmutable;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
@@ -25,6 +26,7 @@ class EmployeeScheduleController extends Controller
         private readonly EmployeeScheduleService $schedule,
         private readonly AuditService $audit,
         private readonly NotificationService $notifications,
+        private readonly ShiftInterval $interval,
     ) {}
 
     public function shifts(Request $request): JsonResponse
@@ -40,7 +42,7 @@ class EmployeeScheduleController extends Controller
     {
         $companyId = $this->schedule->adminAccess($request, 'schedules.manage');
         $data = $request->validate(['name' => ['required', 'string', 'max:120'], 'start_time' => ['required', 'date_format:H:i'],
-            'end_time' => ['required', 'date_format:H:i', 'after:start_time']]);
+            'end_time' => ['required', 'date_format:H:i', 'different:start_time']]);
         $keyHash = $this->schedule->keyHash($request);
         $payloadHash = hash('sha256', json_encode([$data['name'], $data['start_time'], $data['end_time']], JSON_THROW_ON_ERROR));
         $shift = DB::transaction(function () use ($request, $companyId, $data, $keyHash, $payloadHash): EmployeeShift {
@@ -154,6 +156,8 @@ class EmployeeScheduleController extends Controller
                 ->whereDate('shift_date', $data['shift_date'])->exists()) {
                 throw new PlatformException('ROTA_SLOT_DUPLICATE', 'This shift is already scheduled on this date.', 409);
             }
+            $this->interval->resolve($data['shift_date'], $shift->start_time,
+                $shift->end_time, $current->timezone);
             $created = EmployeeRotaSlot::query()->create(['company_id' => $companyId, 'employee_rota_id' => $rota,
                 'employee_shift_id' => $shift->id, 'shift_date' => $data['shift_date'], 'start_time' => $shift->start_time,
                 'end_time' => $shift->end_time, 'required_coverage' => $data['required_coverage'], 'created_by' => $request->user()->id]);
@@ -186,7 +190,8 @@ class EmployeeScheduleController extends Controller
             $this->schedule->assertFutureDate($companyId, $current->shift_date->toDateString());
             $employee = Employee::query()->where('company_id', $companyId)->findOrFail($data['employee_id']);
             $this->schedule->assertCurrent($employee);
-            $this->schedule->assertNoConflict($companyId, $employee->id, $current->shift_date->toDateString(), $current->start_time, $current->end_time);
+            $this->schedule->assertNoConflict($companyId, $employee->id, $current->shift_date->toDateString(),
+                $current->start_time, $current->end_time, $this->schedule->timezoneForSlot($companyId, $current));
             $created = EmployeeShiftAssignment::query()->create(['company_id' => $companyId, 'employee_rota_slot_id' => $slot,
                 'employee_id' => $employee->id, 'created_by' => $request->user()->id]);
             $created->forceFill(['create_request_key_hash' => $keyHash, 'create_payload_hash' => $payloadHash])->save();
@@ -269,14 +274,16 @@ class EmployeeScheduleController extends Controller
         return response()->json(['data' => $assignments->map(fn ($assignment): array => ['id' => $assignment->id,
             'slot_id' => $assignment->employee_rota_slot_id, 'version' => $assignment->version,
             'shift_date' => substr((string) $assignment->shift_date, 0, 10), 'start_time' => $assignment->start_time,
-            'end_time' => $assignment->end_time, 'timezone' => $assignment->timezone,
+            'end_time' => $assignment->end_time, 'ends_next_day' => $assignment->end_time < $assignment->start_time,
+            'timezone' => $assignment->timezone,
             'shift_name' => $assignment->shift_name])->all()]);
     }
 
     private function shiftCard(EmployeeShift $shift): array
     {
         return ['id' => $shift->id, 'name' => $shift->name, 'start_time' => $shift->start_time,
-            'end_time' => $shift->end_time, 'is_active' => $shift->is_active, 'version' => $shift->version];
+            'end_time' => $shift->end_time, 'ends_next_day' => $shift->end_time < $shift->start_time,
+            'is_active' => $shift->is_active, 'version' => $shift->version];
     }
 
     private function rotaCard(EmployeeRota $rota): array
@@ -290,7 +297,8 @@ class EmployeeScheduleController extends Controller
     {
         return ['id' => $slot->id, 'rota_id' => $slot->employee_rota_id, 'shift_id' => $slot->employee_shift_id,
             'shift_date' => $slot->shift_date->toDateString(), 'start_time' => $slot->start_time,
-            'end_time' => $slot->end_time, 'required_coverage' => $slot->required_coverage, 'version' => $slot->version];
+            'end_time' => $slot->end_time, 'ends_next_day' => $slot->end_time < $slot->start_time,
+            'required_coverage' => $slot->required_coverage, 'version' => $slot->version];
     }
 
     private function assignmentCard(EmployeeShiftAssignment $assignment): array

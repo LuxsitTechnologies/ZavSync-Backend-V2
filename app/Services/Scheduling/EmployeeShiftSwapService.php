@@ -52,9 +52,9 @@ class EmployeeShiftSwapService
             }
             [$fromSlot, $toSlot] = $this->eligibleSlots($companyId, $from, $to);
             $this->schedule->assertNoConflict($companyId, $target->id, $fromSlot->shift_date->toDateString(),
-                $fromSlot->start_time, $fromSlot->end_time, [$from->id, $to->id]);
+                $fromSlot->start_time, $fromSlot->end_time, $this->schedule->timezoneForSlot($companyId, $fromSlot), [$from->id, $to->id]);
             $this->schedule->assertNoConflict($companyId, $requester->id, $toSlot->shift_date->toDateString(),
-                $toSlot->start_time, $toSlot->end_time, [$from->id, $to->id]);
+                $toSlot->start_time, $toSlot->end_time, $this->schedule->timezoneForSlot($companyId, $toSlot), [$from->id, $to->id]);
             if (EmployeeShiftSwap::query()->where('company_id', $companyId)->whereIn('status', ['PENDING_TARGET', 'PENDING_ADMIN'])
                 ->where(function ($query) use ($fromId, $toId): void {
                     $query->whereIn('from_assignment_id', [$fromId, $toId])->orWhereIn('to_assignment_id', [$fromId, $toId]);
@@ -132,9 +132,9 @@ class EmployeeShiftSwapService
                 $this->schedule->assertCurrent($target);
                 $exclusions = [$from->id, $to->id];
                 $this->schedule->assertNoConflict($companyId, $target->id, $fromSlot->shift_date->toDateString(),
-                    $fromSlot->start_time, $fromSlot->end_time, $exclusions);
+                    $fromSlot->start_time, $fromSlot->end_time, $this->schedule->timezoneForSlot($companyId, $fromSlot), $exclusions);
                 $this->schedule->assertNoConflict($companyId, $requester->id, $toSlot->shift_date->toDateString(),
-                    $toSlot->start_time, $toSlot->end_time, $exclusions);
+                    $toSlot->start_time, $toSlot->end_time, $this->schedule->timezoneForSlot($companyId, $toSlot), $exclusions);
                 $this->schedule->assertVersion($from->version, $from->version);
                 $this->schedule->assertVersion($to->version, $to->version);
                 $from->forceFill(['employee_id' => $target->id, 'version' => $from->version + 1])->save();
