@@ -136,6 +136,98 @@ class EmployeeScheduleTest extends TestCase
         $this->assertDatabaseCount('employee_shifts', 2);
     }
 
+    public function test_unused_shift_can_be_updated_with_version_and_company_authorization(): void
+    {
+        [$company, $admin, $employeeUser] = $this->context();
+        Sanctum::actingAs($admin);
+        $shift = $this->postJson('/api/v1/hrm/shifts', ['name' => 'Day template', 'start_time' => '09:00', 'end_time' => '17:00'],
+            $this->headers($company, 'editable-shift'))->assertCreated()->json('id');
+        $path = "/api/v1/hrm/shifts/{$shift}";
+        $change = ['version' => 1, 'name' => 'Night template', 'start_time' => '22:00', 'end_time' => '06:00'];
+        $this->putJson($path, $change, $this->headers($company))->assertOk()
+            ->assertJsonPath('version', 2)->assertJsonPath('ends_next_day', true)
+            ->assertJsonPath('is_active', true);
+        $this->putJson($path, $change, $this->headers($company))->assertConflict()
+            ->assertJsonPath('error_code', 'SCHEDULE_VERSION_STALE');
+        $this->putJson($path, [...$change, 'version' => 2, 'end_time' => '22:00'], $this->headers($company))
+            ->assertUnprocessable();
+        $this->assertDatabaseHas('employee_shifts', ['id' => $shift, 'start_time' => '22:00', 'end_time' => '06:00', 'version' => 2]);
+        $this->assertDatabaseHas('audit_logs', ['company_id' => $company->id, 'action' => 'employee_shift_updated']);
+        Sanctum::actingAs($employeeUser);
+        $this->putJson($path, [...$change, 'version' => 2], $this->headers($company))->assertForbidden();
+        Sanctum::actingAs($admin);
+        $foreign = EmployeeShift::factory()->create();
+        $this->putJson("/api/v1/hrm/shifts/{$foreign->id}", [...$change, 'version' => 1], $this->headers($company))
+            ->assertNotFound();
+        $this->assertDatabaseCount('journals', 0);
+        $this->assertDatabaseCount('attendance_sessions', 0);
+    }
+
+    public function test_shift_used_by_draft_or_published_rota_cannot_rewrite_assignment_or_attendance_contract(): void
+    {
+        [$company, $admin, , $employee] = $this->context();
+        $date = now($company->timezone)->addDays(7)->toDateString();
+        Sanctum::actingAs($admin);
+        $shift = $this->postJson('/api/v1/hrm/shifts', ['name' => 'Assigned night', 'start_time' => '22:00', 'end_time' => '06:00'],
+            $this->headers($company, 'assigned-night'))->assertCreated()->json('id');
+        $rota = $this->postJson('/api/v1/hrm/rotas', ['name' => 'Protected rota', 'start_date' => $date, 'end_date' => $date],
+            $this->headers($company, 'protected-rota'))->assertCreated()->json('id');
+        $slot = $this->postJson("/api/v1/hrm/rotas/{$rota}/slots", ['shift_id' => $shift, 'shift_date' => $date,
+            'required_coverage' => 1], $this->headers($company, 'protected-slot'))->assertCreated()->json('id');
+        $change = ['version' => 1, 'name' => 'Rewritten night', 'start_time' => '21:00', 'end_time' => '05:00'];
+        $this->putJson("/api/v1/hrm/shifts/{$shift}", $change, $this->headers($company))->assertConflict()
+            ->assertJsonPath('error_code', 'SHIFT_IN_USE');
+        $this->postJson("/api/v1/hrm/rota-slots/{$slot}/assignments", ['employee_id' => $employee->id],
+            $this->headers($company, 'protected-assignment'))->assertCreated();
+        $this->postJson("/api/v1/hrm/rotas/{$rota}/publish", ['version' => 1], $this->headers($company))->assertOk();
+        $this->putJson("/api/v1/hrm/shifts/{$shift}", $change, $this->headers($company))->assertConflict()
+            ->assertJsonPath('error_code', 'SHIFT_IN_USE');
+        $this->assertDatabaseHas('employee_shifts', ['id' => $shift, 'name' => 'Assigned night', 'version' => 1]);
+        $this->assertDatabaseHas('employee_rota_slots', ['id' => $slot, 'start_time' => '22:00', 'end_time' => '06:00']);
+        $this->assertDatabaseCount('attendance_sessions', 0);
+        $this->assertDatabaseCount('payroll_entries', 0);
+        $this->assertDatabaseCount('journals', 0);
+    }
+
+    public function test_edited_overnight_template_uses_dated_dst_and_cross_midnight_assignment_checks(): void
+    {
+        [$company, $admin, , $employee] = $this->context();
+        $company->forceFill(['timezone' => 'America/New_York'])->save();
+        Sanctum::actingAs($admin);
+        $night = $this->postJson('/api/v1/hrm/shifts', ['name' => 'Editable', 'start_time' => '08:00', 'end_time' => '16:00'],
+            $this->headers($company, 'edited-dst-night'))->assertCreated()->json('id');
+        $this->putJson("/api/v1/hrm/shifts/{$night}", ['version' => 1, 'name' => 'Edited night',
+            'start_time' => '22:00', 'end_time' => '06:00'], $this->headers($company))
+            ->assertOk()->assertJsonPath('ends_next_day', true);
+        $overlap = $this->postJson('/api/v1/hrm/shifts', ['name' => 'Early', 'start_time' => '05:00', 'end_time' => '08:00'],
+            $this->headers($company, 'edited-dst-early'))->assertCreated()->json('id');
+        $date = now($company->timezone)->addDays(7)->toDateString();
+        $next = CarbonImmutable::parse($date, 'UTC')->addDay()->toDateString();
+        $rota = $this->postJson('/api/v1/hrm/rotas', ['name' => 'Edited template rota', 'start_date' => $date,
+            'end_date' => $next], $this->headers($company, 'edited-dst-rota'))->assertCreated()->json('id');
+        $nightSlot = $this->postJson("/api/v1/hrm/rotas/{$rota}/slots", ['shift_id' => $night,
+            'shift_date' => $date, 'required_coverage' => 1], $this->headers($company, 'edited-dst-night-slot'))
+            ->assertCreated()->json('id');
+        $overlapSlot = $this->postJson("/api/v1/hrm/rotas/{$rota}/slots", ['shift_id' => $overlap,
+            'shift_date' => $next, 'required_coverage' => 1], $this->headers($company, 'edited-dst-early-slot'))
+            ->assertCreated()->json('id');
+        $this->postJson("/api/v1/hrm/rota-slots/{$nightSlot}/assignments", ['employee_id' => $employee->id],
+            $this->headers($company, 'edited-dst-night-assignment'))->assertCreated();
+        $this->postJson("/api/v1/hrm/rota-slots/{$overlapSlot}/assignments", ['employee_id' => $employee->id],
+            $this->headers($company, 'edited-dst-early-assignment'))->assertConflict()
+            ->assertJsonPath('error_code', 'SCHEDULE_ASSIGNMENT_CONFLICT');
+
+        $dstShift = $this->postJson('/api/v1/hrm/shifts', ['name' => 'DST template', 'start_time' => '08:00', 'end_time' => '16:00'],
+            $this->headers($company, 'edited-dst-template'))->assertCreated()->json('id');
+        $this->putJson("/api/v1/hrm/shifts/{$dstShift}", ['version' => 1, 'name' => 'DST template',
+            'start_time' => '01:30', 'end_time' => '03:30'], $this->headers($company))->assertOk();
+        $dstRota = $this->postJson('/api/v1/hrm/rotas', ['name' => 'DST invalid rota', 'start_date' => '2027-11-07',
+            'end_date' => '2027-11-07'], $this->headers($company, 'edited-dst-invalid-rota'))->assertCreated()->json('id');
+        $this->postJson("/api/v1/hrm/rotas/{$dstRota}/slots", ['shift_id' => $dstShift,
+            'shift_date' => '2027-11-07', 'required_coverage' => 1], $this->headers($company, 'edited-dst-invalid-slot'))
+            ->assertUnprocessable()->assertJsonPath('error_code', 'SCHEDULE_LOCAL_TIME_INVALID');
+    }
+
     public function test_overnight_assignment_blocks_next_date_overlap_and_accepts_adjacent_shift(): void
     {
         [$company, $admin, , $employee] = $this->context();

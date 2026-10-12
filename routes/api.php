@@ -232,6 +232,7 @@ Route::prefix('v1')->group(function (): void {
             Route::post('employee/shift-swaps/{swap}/decline', [EmployeeShiftSwapController::class, 'decline'])->middleware('throttle:sensitive')->name('employee.shift-swaps.decline');
             Route::get('hrm/shifts', [EmployeeScheduleController::class, 'shifts'])->name('hrm.shifts.index');
             Route::post('hrm/shifts', [EmployeeScheduleController::class, 'storeShift'])->middleware('throttle:sensitive')->name('hrm.shifts.store');
+            Route::put('hrm/shifts/{shift}', [EmployeeScheduleController::class, 'updateShift'])->middleware('throttle:sensitive')->name('hrm.shifts.update');
             Route::get('hrm/rotas', [EmployeeScheduleController::class, 'rotas'])->name('hrm.rotas.index');
             Route::post('hrm/rotas', [EmployeeScheduleController::class, 'storeRota'])->middleware('throttle:sensitive')->name('hrm.rotas.store');
             Route::get('hrm/rotas/{rota}', [EmployeeScheduleController::class, 'showRota'])->name('hrm.rotas.show');

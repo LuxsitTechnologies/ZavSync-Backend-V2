@@ -45,6 +45,7 @@ class EmployeeBeneficiaryAccountController extends Controller
             $created = EmployeeBeneficiaryAccount::query()->create([
                 'company_id' => $companyId, 'employee_id' => $employee, ...$data, 'created_by' => $request->user()->id,
             ]);
+            $created->refresh();
             $this->audit->record($request, $request->user(), $companyId, 'employee_beneficiary_created', 'payroll', $created,
                 null, ['employee_id' => $employee, 'version' => $created->version]);
 

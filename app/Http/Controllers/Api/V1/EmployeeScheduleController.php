@@ -68,6 +68,35 @@ class EmployeeScheduleController extends Controller
         return response()->json($this->shiftCard($shift), $shift->wasRecentlyCreated ? 201 : 200);
     }
 
+    public function updateShift(Request $request, string $shift): JsonResponse
+    {
+        $companyId = $this->schedule->adminAccess($request, 'schedules.manage');
+        $data = $request->validate(['version' => ['required', 'integer', 'min:1'],
+            'name' => ['required', 'string', 'max:120'], 'start_time' => ['required', 'date_format:H:i'],
+            'end_time' => ['required', 'date_format:H:i', 'different:start_time'],
+            'is_active' => ['sometimes', 'boolean']]);
+        $updated = DB::transaction(function () use ($request, $companyId, $shift, $data): EmployeeShift {
+            Company::query()->whereKey($companyId)->lockForUpdate()->firstOrFail();
+            $current = EmployeeShift::query()->where('company_id', $companyId)->lockForUpdate()->findOrFail($shift);
+            $this->schedule->assertVersion($current->version, (int) $data['version']);
+            if (EmployeeRotaSlot::query()->where('company_id', $companyId)->where('employee_shift_id', $shift)->exists()) {
+                throw new PlatformException('SHIFT_IN_USE', 'A shift used by a rota cannot be edited; create a new shift template.', 409);
+            }
+            if ($data['name'] !== $current->name && EmployeeShift::query()->where('company_id', $companyId)
+                ->where('name', $data['name'])->exists()) {
+                throw new PlatformException('SHIFT_NAME_CONFLICT', 'A shift with this name already exists.', 409);
+            }
+            $current->forceFill(['name' => $data['name'], 'start_time' => $data['start_time'],
+                'end_time' => $data['end_time'], 'is_active' => $data['is_active'] ?? $current->is_active,
+                'version' => $current->version + 1])->save();
+            $this->audit->record($request, $request->user(), $companyId, 'employee_shift_updated', 'employee_shifts', $current);
+
+            return $current;
+        });
+
+        return response()->json($this->shiftCard($updated));
+    }
+
     public function rotas(Request $request): JsonResponse
     {
         $companyId = $this->schedule->adminAccess($request, 'schedules.view');

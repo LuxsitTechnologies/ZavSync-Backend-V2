@@ -22,7 +22,8 @@ class EmployeeBeneficiaryAccountTest extends TestCase
         $before = $this->financialCounts();
 
         $response = $this->postJson($path, $this->payload(), $this->headers($company->id))->assertCreated()
-            ->assertJsonPath('masked_account_number', '••••1234')->assertJsonPath('swift_configured', true);
+            ->assertJsonPath('masked_account_number', '••••1234')->assertJsonPath('swift_configured', true)
+            ->assertJsonPath('version', 1);
         $this->assertArrayNotHasKey('account_number', $response->json());
         $this->assertArrayNotHasKey('swift_code', $response->json());
         $raw = DB::table('employee_beneficiary_accounts')->where('id', $response->json('id'))->first();
@@ -30,7 +31,8 @@ class EmployeeBeneficiaryAccountTest extends TestCase
         $this->assertNotSame('Example Bank', $raw->bank_name);
         $this->assertSame('PK00-TEST-1234', EmployeeBeneficiaryAccount::query()->findOrFail($response->json('id'))->account_number);
         $this->assertStringNotContainsString('PK00-TEST-1234', $response->getContent());
-        $this->getJson($path, $this->headers($company->id))->assertOk()->assertJsonPath('id', $response->json('id'));
+        $this->getJson($path, $this->headers($company->id))->assertOk()->assertJsonPath('id', $response->json('id'))
+            ->assertJsonPath('version', $response->json('version'));
         $this->assertDatabaseHas('audit_logs', ['company_id' => $company->id, 'action' => 'employee_beneficiary_created']);
         $this->assertSame($before, $this->financialCounts());
     }
@@ -45,7 +47,7 @@ class EmployeeBeneficiaryAccountTest extends TestCase
         $id = $created->json('id');
         $before = $this->financialCounts();
 
-        $replacement = [...$this->payload(), 'account_number' => 'PK99-NEW-5678', 'version' => 1];
+        $replacement = [...$this->payload(), 'account_number' => 'PK99-NEW-5678', 'version' => $created->json('version')];
         $this->putJson("{$path}/{$id}", $replacement, $this->headers($company->id))->assertOk()
             ->assertJsonPath('masked_account_number', '••••5678')->assertJsonPath('version', 2);
         $this->putJson("{$path}/{$id}", $replacement, $this->headers($company->id))->assertConflict()
