@@ -5,8 +5,10 @@ namespace App\Providers;
 use App\Contracts\AiChatProvider;
 use App\Contracts\AiToolRegistry;
 use App\Contracts\AiUsageMeter;
+use App\Contracts\BillingGateway;
 use App\Contracts\CalendarGateway;
 use App\Contracts\EmbeddingProvider;
+use App\Contracts\FbrCreditNoteGateway;
 use App\Contracts\FbrGateway;
 use App\Contracts\OutboundEmailGateway;
 use App\Contracts\OutreachAiAssistant;
@@ -18,7 +20,9 @@ use App\Services\Ai\LocalVectorStore;
 use App\Services\Ai\OpenAiProvider;
 use App\Services\Ai\UnavailableCalendarGateway;
 use App\Services\Fbr\HttpFbrGateway;
+use App\Services\Fbr\UnavailableFbrCreditNoteGateway;
 use App\Services\Outreach\SmtpEmailGateway;
+use App\Services\Platform\StripeBillingGateway;
 use Illuminate\Cache\RateLimiting\Limit;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Http\Request;
@@ -34,6 +38,8 @@ class AppServiceProvider extends ServiceProvider
     public function register(): void
     {
         $this->app->bind(FbrGateway::class, HttpFbrGateway::class);
+        $this->app->bind(FbrCreditNoteGateway::class, UnavailableFbrCreditNoteGateway::class);
+        $this->app->bind(BillingGateway::class, StripeBillingGateway::class);
         $this->app->bind(OutboundEmailGateway::class, SmtpEmailGateway::class);
         $this->app->bind(AiChatProvider::class, OpenAiProvider::class);
         $this->app->bind(EmbeddingProvider::class, OpenAiProvider::class);

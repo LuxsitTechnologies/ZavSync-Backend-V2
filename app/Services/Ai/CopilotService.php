@@ -9,6 +9,7 @@ use App\Exceptions\PlatformException;
 use App\Models\AiConversation;
 use App\Models\AiMessage;
 use App\Models\AiMessageCitation;
+use App\Models\AiProviderConfiguration;
 use App\Models\User;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
@@ -53,7 +54,8 @@ PROMPT;
         $assistant = AiMessage::query()->create(['company_id' => $companyId, 'ai_conversation_id' => $conversation->id, 'role' => 'ASSISTANT', 'content' => 'Processing…', 'status' => 'PROCESSING', 'metadata' => ['user_message_id' => $userMessage->id]]);
 
         try {
-            $result = $this->provider->chat(new AiChatRequest(self::SYSTEM_INSTRUCTIONS, $history, $knowledge, $this->tools->definitions($user, $companyId)), $configuration);
+            $result = $this->chatWithUsage($companyId, $user, $assistant, $configuration,
+                new AiChatRequest(self::SYSTEM_INSTRUCTIONS, $history, $knowledge, $this->tools->definitions($user, $companyId)), 'PRIMARY');
             $inputTokens = $result->inputTokens;
             $outputTokens = $result->outputTokens;
             $costMinor = $result->costMinor;
@@ -63,7 +65,8 @@ PROMPT;
                 $toolResults[] = $this->tools->execute($user, $companyId, $toolCall['name'], $toolCall['arguments'], $assistant->id);
             }
             if ($toolResults !== []) {
-                $result = $this->provider->chat(new AiChatRequest(self::SYSTEM_INSTRUCTIONS, $history, $knowledge, [], $toolResults), $configuration);
+                $result = $this->chatWithUsage($companyId, $user, $assistant, $configuration,
+                    new AiChatRequest(self::SYSTEM_INSTRUCTIONS, $history, $knowledge, [], $toolResults), 'TOOL_FOLLOWUP');
                 $inputTokens += $result->inputTokens;
                 $outputTokens += $result->outputTokens;
                 $costMinor += $result->costMinor;
@@ -100,7 +103,6 @@ PROMPT;
                 }
                 $conversation->touch();
             });
-            $this->usage->record($companyId, $user->id, ['conversation_id' => $conversation->id, 'message_id' => $assistant->id, 'provider' => $result->provider, 'model' => $result->model, 'operation' => 'CHAT', 'input_tokens' => $inputTokens, 'output_tokens' => $outputTokens, 'cost_minor' => $costMinor, 'metadata' => ['tool_count' => count($toolResults), 'retrieval_count' => count($knowledge), 'citation_count' => count(array_unique($result->citationOrdinals)), 'proposal_count' => count($result->proposedActions), 'latency_ms' => $latencyMs]]);
 
             return $assistant->fresh()->load(['citations.source', 'toolRuns']);
         } catch (\Throwable $exception) {
@@ -108,6 +110,25 @@ PROMPT;
             $assistant->update(['content' => 'The request could not be completed.', 'status' => 'FAILED', 'metadata' => [...($assistant->metadata ?? []), 'error_code' => $errorCode]]);
             $this->usage->record($companyId, $user->id, ['conversation_id' => $conversation->id, 'message_id' => $assistant->id, 'provider' => $configuration->provider, 'model' => $configuration->chat_model, 'operation' => 'CHAT_FAILED', 'input_tokens' => 0, 'output_tokens' => 0, 'cost_minor' => 0, 'metadata' => ['error_category' => $errorCode, 'retrieval_count' => count($knowledge)]]);
             throw $exception;
+        }
+    }
+
+    private function chatWithUsage(string $companyId, User $user, AiMessage $assistant,
+        AiProviderConfiguration $configuration, AiChatRequest $providerRequest, string $step): AiChatResult
+    {
+        $reservationId = $this->usage->reserveChat($companyId, 'CHAT', $providerRequest, $configuration);
+        try {
+            $result = $this->provider->chat($providerRequest, $configuration);
+            $this->usage->record($companyId, $user->id, [
+                'conversation_id' => $assistant->ai_conversation_id, 'message_id' => $assistant->id,
+                'provider' => $result->provider, 'model' => $result->model, 'operation' => 'CHAT',
+                'input_tokens' => $result->inputTokens, 'output_tokens' => $result->outputTokens,
+                'cost_minor' => $result->costMinor, 'metadata' => ['step' => $step, 'latency_ms' => $result->latencyMs],
+            ], $reservationId);
+
+            return $result;
+        } finally {
+            $this->usage->release($reservationId);
         }
     }
 }

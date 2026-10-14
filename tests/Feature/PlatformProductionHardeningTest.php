@@ -94,18 +94,18 @@ class PlatformProductionHardeningTest extends TestCase
         $this->assertDatabaseCount('journals', 0);
     }
 
-    public function test_authenticated_user_can_create_isolated_trial_company(): void
+    public function test_authenticated_user_creates_isolated_company_without_starting_trial(): void
     {
         [$user] = $this->actingAsCompanyUser([]);
         Permission::factory()->create(['name' => 'platform.settings.view']);
-        $plan = Plan::factory()->create();
+        $plan = Plan::factory()->create(['code' => 'starter']);
 
         $response = $this->postJson('/api/v1/platform/companies', [
             'name' => 'New Tenant', 'currency' => 'PKR', 'timezone' => 'Asia/Karachi', 'country_code' => 'PK', 'plan_id' => $plan->id,
         ])->assertCreated()->assertJsonPath('company.name', 'New Tenant');
         $companyId = $response->json('company.id');
         $this->assertDatabaseHas('company_users', ['company_id' => $companyId, 'user_id' => $user->id, 'is_active' => true]);
-        $this->assertDatabaseHas('subscriptions', ['company_id' => $companyId, 'plan_id' => $plan->id, 'status' => 'TRIALING']);
+        $this->assertDatabaseHas('subscriptions', ['company_id' => $companyId, 'plan_id' => $plan->id, 'status' => 'PENDING_APPROVAL', 'starts_at' => null, 'trial_ends_at' => null]);
         $this->assertDatabaseHas('audit_logs', ['company_id' => $companyId, 'action' => 'company_created']);
     }
 

@@ -2,7 +2,9 @@
 
 namespace App\Http\Controllers\Api\V1\Platform;
 
+use App\Exceptions\PlatformException;
 use App\Http\Controllers\Controller;
+use App\Models\Company;
 use App\Models\CompanyEntitlement;
 use App\Models\Plan;
 use App\Models\PlatformModule;
@@ -32,10 +34,33 @@ class SubscriptionController extends Controller
         ]);
     }
 
+    public function history(Request $request): JsonResponse
+    {
+        $companyId = $this->companyId($request);
+        $this->access->authorize($request->user(), $companyId, 'platform.subscription.view');
+        $data = $request->validate(['per_page' => ['nullable', 'integer', 'between:1,100'], 'page' => ['nullable', 'integer', 'min:1']]);
+        $history = Subscription::query()->with('plan:id,code,name,currency,billing_interval')
+            ->where('company_id', $companyId)->orderByDesc('starts_at')->orderByDesc('id')
+            ->paginate($data['per_page'] ?? 25);
+
+        return response()->json($history->through(fn (Subscription $subscription): array => [
+            'id' => $subscription->id,
+            'plan' => $subscription->plan?->only(['id', 'code', 'name', 'currency', 'billing_interval']),
+            'status' => $subscription->status,
+            'billing_interval' => $subscription->billing_interval,
+            'starts_at' => $subscription->starts_at?->toISOString(),
+            'trial_ends_at' => $subscription->trial_ends_at?->toISOString(),
+            'renews_at' => $subscription->renews_at?->toISOString(),
+            'ends_at' => $subscription->ends_at?->toISOString(),
+            'cancelled_at' => $subscription->cancelled_at?->toISOString(),
+        ]));
+    }
+
     public function update(Request $request): JsonResponse
     {
         $companyId = $this->companyId($request);
         $this->access->authorize($request->user(), $companyId, 'platform.subscription.manage');
+        $this->assertLegacySubscriptionManagement($companyId);
         $data = $request->validate([
             'plan_id' => ['required', 'integer', 'exists:plans,id'], 'status' => ['required', 'in:TRIALING,ACTIVE,PAST_DUE,SUSPENDED,CANCELLED,EXPIRED'],
             'billing_interval' => ['required', 'in:monthly,annual'], 'trial_ends_at' => ['nullable', 'date'], 'renews_at' => ['nullable', 'date'], 'ends_at' => ['nullable', 'date'],
@@ -52,6 +77,7 @@ class SubscriptionController extends Controller
     {
         $companyId = $this->companyId($request);
         $this->access->authorize($request->user(), $companyId, 'platform.subscription.manage');
+        $this->assertLegacySubscriptionManagement($companyId);
         abort_unless(PlatformModule::query()->whereKey($module)->exists(), 404);
         $data = $request->validate(['is_enabled' => ['required', 'boolean'], 'limits' => ['nullable', 'array'], 'limits.*' => ['integer', 'min:-1'], 'expires_at' => ['nullable', 'date']]);
         $entitlement = CompanyEntitlement::query()->updateOrCreate(
@@ -90,5 +116,13 @@ class SubscriptionController extends Controller
     private function companyId(Request $request): string
     {
         return (string) $request->attributes->get('company_id');
+    }
+
+    private function assertLegacySubscriptionManagement(string $companyId): void
+    {
+        if (Company::query()->whereKey($companyId)->value('billing_policy_applies')) {
+            throw new PlatformException('BILLING_PROVIDER_AUTHORITY_REQUIRED',
+                'Commercial subscriptions and entitlements require the approved billing lifecycle.', 409);
+        }
     }
 }

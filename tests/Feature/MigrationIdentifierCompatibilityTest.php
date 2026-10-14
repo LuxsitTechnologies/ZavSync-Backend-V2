@@ -17,6 +17,19 @@ class MigrationIdentifierCompatibilityTest extends TestCase
     {
         $connection = new class(null, 'static_only', '', ['driver' => 'mysql', 'charset' => 'utf8mb4', 'collation' => 'utf8mb4_unicode_ci']) extends MySqlConnection
         {
+            public function select($query, $bindings = [], $useReadPdo = true, array $fetchUsing = []): array
+            {
+                $reviewedReadQueries = [
+                    'select exists(select * from `subscriptions` where `starts_at` is null) as `exists`',
+                    'select exists(select * from `security_events` where LENGTH(result) > 20) as `exists`',
+                ];
+                if (! in_array($query, $reviewedReadQueries, true) || $bindings !== []) {
+                    throw new \LogicException('Static migration audit forbids unexpected database queries.');
+                }
+
+                return [(object) ['exists' => 0]];
+            }
+
             public function selectOne($query, $bindings = [], $useReadPdo = true): object
             {
                 if ($query !== "SHOW COLLATION WHERE Collation = 'utf8mb4_nopad_bin'" || $bindings !== []) {

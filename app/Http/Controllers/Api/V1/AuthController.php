@@ -4,12 +4,15 @@ namespace App\Http\Controllers\Api\V1;
 
 use App\Exceptions\PlatformException;
 use App\Http\Controllers\Controller;
+use App\Models\Company;
 use App\Models\CompanyUser;
 use App\Models\SecurityEvent;
 use App\Models\User;
 use App\Services\Platform\EntitlementService;
 use App\Services\Platform\NavigationVisibilityService;
 use Illuminate\Auth\Events\PasswordReset;
+use Illuminate\Auth\Events\Verified;
+use Illuminate\Database\UniqueConstraintViolationException;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Auth;
@@ -24,6 +27,58 @@ class AuthController extends Controller
         private readonly EntitlementService $entitlements,
         private readonly NavigationVisibilityService $navigation,
     ) {}
+
+    public function register(Request $request): JsonResponse
+    {
+        $data = $request->validate([
+            'name' => ['required', 'string', 'min:2', 'max:255'],
+            'email' => ['required', 'email:rfc', 'max:255'],
+            'password' => ['required', 'string', 'min:12', 'confirmed'],
+        ]);
+        $email = Str::lower($data['email']);
+        if (User::query()->whereRaw('LOWER(email) = ?', [$email])->exists()) {
+            return response()->json(['message' => 'If this address can register, a verification email has been sent.'], 202);
+        }
+        try {
+            $user = User::query()->create(['name' => $data['name'], 'email' => $email, 'password' => $data['password']]);
+        } catch (UniqueConstraintViolationException) {
+            return response()->json(['message' => 'If this address can register, a verification email has been sent.'], 202);
+        }
+        $user->sendEmailVerificationNotification();
+        SecurityEvent::query()->create([
+            'user_id' => $user->id, 'type' => 'PUBLIC_ACCOUNT_REGISTERED', 'result' => 'PENDING_EMAIL_VERIFICATION',
+            'ip_address' => $request->ip(), 'user_agent' => mb_substr((string) $request->userAgent(), 0, 1000),
+            'correlation_id' => $request->attributes->get('correlation_id'),
+        ]);
+
+        return response()->json(['message' => 'If this address can register, a verification email has been sent.'], 202);
+    }
+
+    public function verifyEmail(Request $request, string $id, string $hash): JsonResponse
+    {
+        $user = User::query()->findOrFail($id);
+        abort_unless(hash_equals(sha1($user->getEmailForVerification()), $hash), 403);
+        if (! $user->hasVerifiedEmail()) {
+            $user->markEmailAsVerified();
+            event(new Verified($user));
+            SecurityEvent::query()->create([
+                'user_id' => $user->id, 'type' => 'PUBLIC_EMAIL_VERIFIED', 'result' => 'SUCCESS',
+                'ip_address' => $request->ip(), 'user_agent' => mb_substr((string) $request->userAgent(), 0, 1000),
+                'correlation_id' => $request->attributes->get('correlation_id'),
+            ]);
+        }
+
+        return response()->json(['message' => 'Email verified. Sign in to create a pending company.']);
+    }
+
+    public function resendVerification(Request $request): JsonResponse
+    {
+        if (! $request->user()->hasVerifiedEmail()) {
+            $request->user()->sendEmailVerificationNotification();
+        }
+
+        return response()->json(['message' => 'If verification is pending, a new email has been sent.']);
+    }
 
     public function login(Request $request): JsonResponse
     {
@@ -98,6 +153,13 @@ class AuthController extends Controller
         if (! $request->user()->belongsToCompany($data['company_id'])) {
             abort(403, 'You do not have access to this company.');
         }
+        $company = Company::query()->findOrFail($data['company_id']);
+        if ($company->approval_status !== 'APPROVED') {
+            throw new PlatformException('COMPANY_NOT_APPROVED', 'This company is not approved for workspace access.', 403);
+        }
+        if (! $company->is_active) {
+            throw new PlatformException('COMPANY_INACTIVE', 'This company is inactive.', 403);
+        }
 
         return response()->json(['company' => $this->companyPayload($request->user()->id, $data['company_id'])]);
     }
@@ -111,7 +173,7 @@ class AuthController extends Controller
             ->where('user_id', $user->id)->where('is_active', true)->get();
 
         return [
-            'user' => ['id' => $user->id, 'name' => $user->name, 'email' => $user->email, 'is_platform_admin' => $user->is_platform_admin],
+            'user' => ['id' => $user->id, 'name' => $user->name, 'email' => $user->email, 'email_verified' => $user->hasVerifiedEmail(), 'is_platform_admin' => $user->is_platform_admin],
             'companies' => $memberships->map(fn (CompanyUser $membership): array => $this->companyPayload($user->id, $membership->company_id, $membership))->values(),
         ];
     }
@@ -127,6 +189,7 @@ class AuthController extends Controller
         return [
             'id' => $membership->company->id, 'name' => $membership->company->name,
             'currency' => $membership->company->currency, 'timezone' => $membership->company->timezone,
+            'approval_status' => $membership->company->approval_status, 'is_active' => $membership->company->is_active,
             'roles' => collect([$membership->role])->merge($membership->roles)->filter()->pluck('name')->unique()->values(),
             'permissions' => $permissions, 'modules' => $this->entitlements->enabledModules($companyId),
             'effective_navigation' => $this->navigation->resolve($companyId, $permissions->all()),

@@ -3,6 +3,7 @@
 namespace Tests\Feature\Stage15;
 
 use App\Enums\FbrSubmissionStatus;
+use App\Exceptions\FbrOutcomeUncertainException;
 use App\Exceptions\FbrUnavailableException;
 use App\Services\Fbr\FbrSubmissionContext;
 use App\Services\Fbr\HttpFbrGateway;
@@ -46,8 +47,16 @@ class FbrTransportSecurityTest extends TestCase
         $gateway = app(HttpFbrGateway::class);
         $context = new FbrSubmissionContext('https://fbr.example.test/submit', 'fixture-secret', 'SANDBOX');
         $this->assertSame(FbrSubmissionStatus::Submitted, $gateway->submit([], 'one', $context)->status);
-        $this->expectException(FbrUnavailableException::class);
+        $this->expectException(FbrOutcomeUncertainException::class);
         $gateway->submit([], 'two', $context);
+    }
+
+    public function test_server_error_is_an_ambiguous_provider_outcome_not_a_verified_rejection(): void
+    {
+        Http::fake(['https://fbr.example.test/submit' => Http::response(['message' => 'internal error'], 503)]);
+
+        $this->expectException(FbrOutcomeUncertainException::class);
+        app(HttpFbrGateway::class)->submit([], 'one', new FbrSubmissionContext('https://fbr.example.test/submit', 'fixture-secret', 'SANDBOX'));
     }
 
     public function test_historical_and_provider_response_sanitizer_excludes_nested_credentials_and_redacts_free_text_secrets(): void

@@ -45,8 +45,15 @@ class KnowledgeIngestionService
                 throw new PlatformException('KNOWLEDGE_SOURCE_EMPTY', 'The knowledge source does not contain indexable text.', 422);
             }
 
-            $this->usage->assertWithinLimit($run->company_id, 'EMBEDDING');
+            $reservationId = $this->usage->reserveEmbedding($run->company_id, 'EMBEDDING', $chunks);
             $result = $this->embeddings->embed($chunks, $configuration);
+            $this->usage->record($run->company_id, $run->requested_by, [
+                'provider' => $result->provider, 'model' => $result->model, 'operation' => 'EMBEDDING',
+                'input_tokens' => $result->inputTokens, 'output_tokens' => 0,
+                'cost_minor' => $result->costMinor,
+                'metadata' => ['knowledge_source_id' => $source->id, 'source_version' => $source->version, 'latency_ms' => $result->latencyMs],
+            ], $reservationId);
+            $reservationId = null;
             if (count($result->vectors) !== count($chunks)) {
                 throw new PlatformException('AI_PROVIDER_INVALID_RESPONSE', 'The embedding provider returned an invalid vector count.', 502);
             }
@@ -75,18 +82,9 @@ class KnowledgeIngestionService
                 $run->update(['status' => 'COMPLETED', 'chunk_count' => count($chunks), 'completed_at' => now()]);
             });
 
-            $this->usage->record($run->company_id, $run->requested_by, [
-                'provider' => $result->provider,
-                'model' => $result->model,
-                'operation' => 'EMBEDDING',
-                'input_tokens' => $result->inputTokens,
-                'output_tokens' => 0,
-                'cost_minor' => $result->costMinor,
-                'metadata' => ['knowledge_source_id' => $source->id, 'source_version' => $source->version, 'latency_ms' => $result->latencyMs],
-            ]);
-
             return $run->fresh();
         } catch (Throwable $exception) {
+            $this->usage->release($reservationId ?? null);
             $code = $exception instanceof PlatformException ? $exception->errorCode : 'KNOWLEDGE_INGESTION_FAILED';
             $message = $exception instanceof PlatformException ? $exception->getMessage() : 'The knowledge source could not be indexed.';
             $run->update(['status' => 'FAILED', 'failure_code' => $code, 'failure_message' => Str::limit($message, 2000, ''), 'completed_at' => now()]);

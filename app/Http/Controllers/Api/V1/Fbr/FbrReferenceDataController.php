@@ -6,6 +6,7 @@ use App\Http\Controllers\Controller;
 use App\Http\Resources\FbrReferenceValueResource;
 use App\Models\FbrReferenceValue;
 use App\Services\Platform\PlatformAccessService;
+use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Http\Request;
 use Illuminate\Http\Resources\Json\AnonymousResourceCollection;
 use Illuminate\Validation\Rule;
@@ -43,5 +44,24 @@ class FbrReferenceDataController extends Controller
         }
 
         return FbrReferenceValueResource::collection($query->orderBy('category')->orderBy('code')->get());
+    }
+
+    public function search(Request $request): AnonymousResourceCollection
+    {
+        $companyId = (string) $request->attributes->get('company_id');
+        $this->access->authorize($request->user(), $companyId, 'fbr.configuration.view');
+        $data = $request->validate([
+            'category' => ['required', Rule::in(['PROVINCE', 'DOCUMENT_TYPE', 'HS_CODE', 'UOM', 'SALE_TYPE', 'RATE', 'SRO_SCHEDULE', 'SRO_ITEM'])],
+            'search' => ['required', 'string', 'min:2', 'max:120'], 'per_page' => ['nullable', 'integer', 'between:1,100'],
+            'page' => ['nullable', 'integer', 'min:1'], 'source' => ['nullable', 'string', 'max:60'],
+        ]);
+        $term = '%'.trim($data['search']).'%';
+        $query = FbrReferenceValue::query()->where('category', $data['category'])->where('is_active', true)
+            ->where(fn (Builder $builder): Builder => $builder->where('code', 'like', $term)->orWhere('label', 'like', $term));
+        if (isset($data['source'])) {
+            $query->where('source', $data['source']);
+        }
+
+        return FbrReferenceValueResource::collection($query->orderBy('code')->orderBy('id')->paginate($data['per_page'] ?? 25));
     }
 }

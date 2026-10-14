@@ -22,7 +22,7 @@ class AuthAndTenantIsolationTest extends TestCase
     {
         config()->set('sanctum.stateful', ['frontend.example.test']);
         $user = User::factory()->create(['email' => 'new-company@example.test']);
-        $plan = Plan::factory()->create();
+        $plan = Plan::factory()->create(['code' => 'starter']);
         $headers = ['Origin' => 'https://frontend.example.test'];
 
         $this->postJson('/api/v1/auth/login', ['email' => $user->email, 'password' => 'password'], $headers)
@@ -35,6 +35,10 @@ class AuthAndTenantIsolationTest extends TestCase
         ], $headers)->assertCreated()->json('company.id');
         $this->assertDatabaseHas('company_users', ['company_id' => $companyId, 'user_id' => $user->id, 'is_active' => true]);
 
+        $this->postJson('/api/v1/auth/switch-company', ['company_id' => $companyId], $headers)
+            ->assertForbidden()->assertJsonPath('error_code', 'COMPANY_NOT_APPROVED');
+        $this->getJson('/api/v1/auth/me', $headers)->assertOk()->assertJsonPath('companies.0.approval_status', 'PENDING');
+        Company::query()->findOrFail($companyId)->update(['approval_status' => 'APPROVED']);
         $this->postJson('/api/v1/auth/switch-company', ['company_id' => $companyId], $headers)
             ->assertOk()->assertJsonPath('company.id', $companyId);
         $this->getJson('/api/v1/auth/me', $headers)->assertOk()->assertJsonPath('companies.0.id', $companyId);

@@ -8,6 +8,9 @@ use App\Models\AiConversation;
 use App\Models\AiUsageRecord;
 use App\Models\Company;
 use App\Models\CompanySetting;
+use App\Models\Subscription;
+use App\Services\Platform\BillingNoticeService;
+use App\Services\Platform\EntitlementService;
 use Illuminate\Foundation\Inspiring;
 use Illuminate\Support\Facades\Artisan;
 use Illuminate\Support\Facades\DB;
@@ -23,13 +26,34 @@ Artisan::command('platform:expire-invitations', function (): void {
 })->purpose('Expire pending company invitations past their deadline');
 
 Artisan::command('platform:evaluate-subscriptions', function (): void {
-    $count = DB::table('subscriptions')->where(function ($query): void {
+    Subscription::query()->where('status', 'PAST_DUE_GRACE')
+        ->whereNotNull('grace_ends_at')->where('grace_ends_at', '>', now())
+        ->orderBy('id')->chunk(100, function ($subscriptions): void {
+            foreach ($subscriptions as $subscription) {
+                if ($subscription->grace_ends_at->isBefore(now()->addDay())) {
+                    app(BillingNoticeService::class)->notify($subscription, 'FINAL');
+                } elseif ($subscription->grace_ends_at->isBefore(now()->addDays(5))) {
+                    app(BillingNoticeService::class)->notify($subscription, 'REMINDER');
+                }
+            }
+        });
+    $expired = DB::table('subscriptions')->where(function ($query): void {
         $query->where(function ($trials): void {
             $trials->where('status', 'TRIALING')->whereNotNull('trial_ends_at')->where('trial_ends_at', '<=', now());
         })->orWhere(function ($ending): void {
             $ending->whereIn('status', ['TRIALING', 'ACTIVE'])->whereNotNull('ends_at')->where('ends_at', '<=', now());
+        })->orWhere(function ($grace): void {
+            $grace->where('status', 'PAST_DUE_GRACE')->whereNotNull('grace_ends_at')->where('grace_ends_at', '<=', now());
+        })->orWhere(function ($cancellation): void {
+            $cancellation->where('status', 'ACTIVE')->whereNotNull('cancel_at_period_end_at')
+                ->where('cancel_at_period_end_at', '<=', now());
         });
-    })->update(['status' => 'EXPIRED', 'updated_at' => now()]);
+    });
+    $companyIds = $expired->distinct()->pluck('company_id');
+    $count = $expired->update(['status' => 'EXPIRED', 'updated_at' => now()]);
+    foreach ($companyIds as $companyId) {
+        app(EntitlementService::class)->forget($companyId);
+    }
     $this->info("Expired {$count} subscription(s).");
 })->purpose('Evaluate subscription expiry dates');
 

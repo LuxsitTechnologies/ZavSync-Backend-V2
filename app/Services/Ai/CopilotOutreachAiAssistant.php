@@ -18,7 +18,6 @@ class CopilotOutreachAiAssistant implements OutreachAiAssistant
             throw new PlatformException('COMPANY_CONTEXT_REQUIRED', 'Company context is required for AI-assisted outreach drafting.', 422);
         }
         $configuration = $this->configurations->requireEnabled($companyId);
-        $this->usage->assertWithinLimit($companyId, 'OUTREACH_DRAFT');
         $providerContext = $context;
         unset($providerContext['company_id'], $providerContext['user_id']);
         $schema = [
@@ -31,13 +30,20 @@ class CopilotOutreachAiAssistant implements OutreachAiAssistant
             'required' => ['subject', 'body_text', 'body_html'],
             'additionalProperties' => false,
         ];
-        $result = $this->provider->chat(new AiChatRequest('Draft outreach copy only. Never send, enroll, or mutate CRM data. Return structured subject, body_text, and optional body_html.', [['role' => 'user', 'content' => $prompt]], [['context' => $providerContext]], [], [], $schema), $configuration);
+        $providerRequest = new AiChatRequest('Draft outreach copy only. Never send, enroll, or mutate CRM data. Return structured subject, body_text, and optional body_html.', [['role' => 'user', 'content' => $prompt]], [['context' => $providerContext]], [], [], $schema);
+        $reservationId = $this->usage->reserveChat($companyId, 'OUTREACH_DRAFT', $providerRequest, $configuration);
+        try {
+            $result = $this->provider->chat($providerRequest, $configuration);
+            $this->usage->record($companyId, isset($context['user_id']) ? (int) $context['user_id'] : null, ['provider' => $result->provider, 'model' => $result->model, 'operation' => 'OUTREACH_DRAFT', 'input_tokens' => $result->inputTokens, 'output_tokens' => $result->outputTokens, 'cost_minor' => $result->costMinor, 'metadata' => ['latency_ms' => $result->latencyMs]], $reservationId);
+        } catch (\Throwable $exception) {
+            $this->usage->release($reservationId);
+            throw $exception;
+        }
         $subject = $result->structured['subject'] ?? null;
         $bodyText = $result->structured['body_text'] ?? null;
         if (! is_string($subject) || ! is_string($bodyText)) {
             throw new PlatformException('AI_PROVIDER_INVALID_RESPONSE', 'The AI provider did not return a valid outreach draft.', 502);
         }
-        $this->usage->record($companyId, isset($context['user_id']) ? (int) $context['user_id'] : null, ['provider' => $result->provider, 'model' => $result->model, 'operation' => 'OUTREACH_DRAFT', 'input_tokens' => $result->inputTokens, 'output_tokens' => $result->outputTokens, 'cost_minor' => $result->costMinor, 'metadata' => ['latency_ms' => $result->latencyMs]]);
 
         return ['subject' => $subject, 'body_text' => $bodyText, 'body_html' => is_string($result->structured['body_html'] ?? null) ? $result->structured['body_html'] : null];
     }

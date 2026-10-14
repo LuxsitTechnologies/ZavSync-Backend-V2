@@ -68,6 +68,7 @@ class DatabaseSeeder extends Seeder
      */
     public function run(): void
     {
+        $this->call(BillingCatalogueSeeder::class);
         $user = User::factory()->create(['name' => 'Finance Administrator', 'email' => 'finance@example.com', 'is_platform_admin' => true]);
         $company = Company::factory()->create(['name' => 'ZavSync Demo Company', 'slug' => 'zavsync-demo']);
         $role = Role::query()->create(['company_id' => $company->id, 'name' => 'Finance Administrator', 'is_system' => true]);
@@ -106,11 +107,13 @@ class DatabaseSeeder extends Seeder
             'outreach.sequences.manage', 'outreach.providers.manage', 'outreach.suppressions.manage', 'outreach.reports.view',
             'platform.users.view', 'platform.users.manage', 'platform.invitations.manage',
             'platform.roles.view', 'platform.roles.manage', 'platform.settings.view', 'platform.settings.manage', 'platform.settings.high-risk',
-            'platform.subscription.view', 'platform.subscription.manage', 'platform.plans.manage',
+            'platform.subscription.view', 'platform.subscription.manage', 'platform.plans.manage', 'billing.view', 'billing.manage',
+            'platform.companies.view', 'platform.companies.approve', 'platform.companies.activate',
             'platform.documents.view', 'platform.documents.manage', 'platform.audit.view', 'platform.security.view', 'platform.security.manage',
             'platform.jobs.view', 'platform.jobs.manage', 'platform.exports.view', 'platform.exports.manage',
             'fbr.configuration.view', 'fbr.configuration.manage', 'migration.view', 'migration.manage',
-            'pakistan_fbr.view', 'pakistan_fbr.manage', 'pakistan_fbr.submit',
+            'pakistan_fbr.view', 'pakistan_fbr.manage', 'pakistan_fbr.submit', 'fbr.reconcile', 'fbr.hs.manage',
+            'portal.settings.view', 'portal.settings.manage',
             'ai.copilot.use', 'ai.knowledge.view', 'ai.knowledge.manage', 'ai.tools.use',
             'ai.actions.propose', 'ai.actions.review', 'ai.actions.approve', 'ai.actions.execute',
             'ai.providers.view', 'ai.providers.manage', 'ai.usage.view', 'ai.evaluations.view', 'ai.evaluations.manage',
@@ -148,7 +151,7 @@ class DatabaseSeeder extends Seeder
             'credential' => null, 'connection_state' => 'NOT_VERIFIED', 'updated_by' => $user->id,
         ]);
         $modules = collect([
-            'accounting' => 'Accounting', 'invoicing' => 'Invoicing / FBR', 'receivables' => 'Receivables',
+            'accounting' => 'Accounting', 'invoicing' => 'Invoicing', 'fbr' => 'FBR Invoicing', 'hrm' => 'Human Resources', 'receivables' => 'Receivables',
             'procurement' => 'Procurement', 'payables' => 'Payables', 'inventory' => 'Inventory', 'banking' => 'Banking',
             'budgeting' => 'Budgeting', 'payroll' => 'Payroll', 'crm' => 'CRM', 'outreach' => 'Outreach', 'ai' => 'AI Assistant', 'analytics' => 'Analytics',
         ])->map(fn (string $name, string $key) => PlatformModule::query()->create(['key' => $key, 'name' => $name]));

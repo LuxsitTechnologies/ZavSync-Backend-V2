@@ -57,17 +57,23 @@ class KnowledgeRetrievalService
         }
 
         $configuration = $this->configurations->requireEnabled($companyId);
-        $embedding = $this->embeddings->embed([$query], $configuration);
+        $reservationId = $this->usage->reserveEmbedding($companyId, 'RETRIEVAL', [$query]);
+        try {
+            $embedding = $this->embeddings->embed([$query], $configuration);
+            $this->usage->record($companyId, $user->id, [
+                'provider' => $embedding->provider,
+                'model' => $embedding->model,
+                'operation' => 'RETRIEVAL',
+                'input_tokens' => $embedding->inputTokens,
+                'output_tokens' => 0,
+                'cost_minor' => $embedding->costMinor,
+                'metadata' => ['latency_ms' => $embedding->latencyMs],
+            ], $reservationId);
+        } catch (\Throwable $exception) {
+            $this->usage->release($reservationId);
+            throw $exception;
+        }
         $queryVector = $embedding->vectors[0] ?? [];
-        $this->usage->record($companyId, $user->id, [
-            'provider' => $embedding->provider,
-            'model' => $embedding->model,
-            'operation' => 'RETRIEVAL',
-            'input_tokens' => $embedding->inputTokens,
-            'output_tokens' => 0,
-            'cost_minor' => $embedding->costMinor,
-            'metadata' => ['latency_ms' => $embedding->latencyMs],
-        ]);
         $terms = collect(preg_split('/[^\pL\pN]+/u', Str::lower($query)) ?: [])->filter(fn (string $term) => Str::length($term) >= 3)->unique()->values();
 
         return $chunks

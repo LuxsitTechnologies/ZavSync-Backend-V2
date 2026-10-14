@@ -11,11 +11,13 @@ class PakistanFbrInvoiceResource extends JsonResource
     public function toArray(Request $request): array
     {
         return [
-            'id' => $this->id, 'company_id' => $this->company_id, 'domain' => 'pakistan_fbr', 'module_name' => 'FBR Invoicing',
+            'id' => $this->id, 'company_id' => $this->company_id, 'domain' => 'pakistan_fbr', 'module_name' => 'FBR Invoice',
             'customer_id' => $this->customer_id, 'invoice_number' => $this->invoice_number,
             'invoice_date' => $this->invoice_date->format('Y-m-d'), 'due_date' => $this->due_date?->format('Y-m-d'),
             'document_state' => $this->document_state, 'is_historical' => $this->is_historical,
             'accounting_integration' => 'NOT_INTEGRATED', 'buyer_snapshot' => $this->buyer_snapshot,
+            'buyer_verification' => ['status' => 'NOT_VERIFIED', 'provider' => null],
+            'seller_snapshot' => $this->seller_snapshot,
             'invoice_type' => $this->invoice_type, 'sale_type' => $this->sale_type,
             'scenario_id' => $this->scenarioId(),
             'origin_province' => $this->origin_province, 'destination_province' => $this->destination_province,
@@ -25,11 +27,20 @@ class PakistanFbrInvoiceResource extends JsonResource
             'withholding_tax' => $this->withholding_tax, 'total' => $this->total,
             'historical_amount_paid' => $this->is_historical ? $this->amount_paid : null,
             'notes' => $this->notes, 'fbr_status' => $this->fbr_status->value, 'fbr_reference_number' => $this->fbr_reference_number,
+            'credit_note' => $this->whenLoaded('creditNotes', fn (): ?array => $this->creditNotes->first() === null ? null : [
+                'id' => $this->creditNotes->first()->id,
+                'number' => $this->creditNotes->first()->credit_note_number,
+                'state' => $this->creditNotes->first()->state,
+            ]),
+            'fully_credited' => $this->whenLoaded('creditNotes', fn (): bool => $this->creditNotes->contains('state', 'ACCEPTED')),
             'editable' => $this->isEditable(), 'submission_blocked' => $this->is_historical,
             'capabilities' => [
                 'accounting_posting' => false, 'payments' => false, 'amendment' => false, 'cancellation' => false,
+                'delete_draft' => $this->isDeletableDraft(),
+                'reconciliation_required' => $this->fbr_status->value === 'uncertain',
                 'retry_recovery' => ! $this->is_historical && $this->fbr_reference_number === null
                     && in_array($this->fbr_status->value, ['pending', 'failed'], true),
+                'internal_credit_note' => $this->canCreateInternalCreditNote(),
                 'certified_print_qr' => false, 'scenario_fed_236g_236h' => false,
                 'print_data' => true, 'regulatory_print_status' => 'STAGING_CERTIFICATION_REQUIRED',
                 'qr_content' => null, 'buyer_registration_check' => false, 'reference_sync' => false,

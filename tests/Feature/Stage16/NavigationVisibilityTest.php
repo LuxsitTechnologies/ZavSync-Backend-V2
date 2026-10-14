@@ -188,6 +188,28 @@ class NavigationVisibilityTest extends TestCase
         $this->assertNotContains('accounting.invoices', $response->json('visible_keys'));
     }
 
+    public function test_parent_visibility_is_derived_only_from_visible_children(): void
+    {
+        [, $company] = $this->actingAsCompanyUser(['platform.settings.manage', 'pakistan_fbr.view', 'accounting.view']);
+        $this->subscribe($company, ['invoicing']);
+        $headers = ['X-Company-Id' => $company->id];
+
+        $initial = $this->getJson('/api/v1/platform/navigation', $headers)->assertOk();
+        $fbrParent = collect($initial->json('parents'))->firstWhere('key', 'finance.fbr');
+        $this->assertTrue($fbrParent['effective_visible']);
+        $this->assertSame(['fbr.invoicing'], $fbrParent['visible_child_keys']);
+        $this->assertSame('finance.fbr', $this->item($initial->json(), 'fbr.invoicing')['parent_key']);
+
+        $hidden = $this->putJson('/api/v1/platform/navigation/fbr.invoicing', ['is_visible' => false], $headers)->assertOk();
+        $fbrParent = collect($hidden->json('parents'))->firstWhere('key', 'finance.fbr');
+        $accountingParent = collect($hidden->json('parents'))->firstWhere('key', 'finance.accounting');
+        $this->assertFalse($fbrParent['effective_visible']);
+        $this->assertSame([], $fbrParent['visible_child_keys']);
+        $this->assertTrue($accountingParent['effective_visible']);
+        $this->assertContains('accounting.invoices', $accountingParent['visible_child_keys']);
+        $this->getJson('/api/v1/pakistan-fbr/invoices', $headers)->assertOk();
+    }
+
     public function test_inactive_or_missing_catalog_module_cannot_become_visible(): void
     {
         [, $company] = $this->actingAsCompanyUser(['platform.settings.manage', 'accounting.view', 'pakistan_fbr.view']);

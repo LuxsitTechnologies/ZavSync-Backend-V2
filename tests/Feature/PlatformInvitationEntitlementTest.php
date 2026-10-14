@@ -25,6 +25,26 @@ class PlatformInvitationEntitlementTest extends TestCase
 {
     use RefreshDatabase;
 
+    public function test_subscription_history_is_bounded_company_scoped_and_not_payment_history(): void
+    {
+        [, $company] = $this->actingAsCompanyUser(['platform.subscription.view']);
+        $other = Company::factory()->create();
+        $plan = Plan::factory()->create(['name' => 'Verified Plan']);
+        Subscription::factory()->for($company)->for($plan)->create(['starts_at' => now()->subMonth(), 'status' => 'TRIALING']);
+        $latest = Subscription::factory()->for($company)->for($plan)->create(['starts_at' => now(), 'status' => 'ACTIVE', 'provider_reference' => 'internal-provider-reference']);
+        Subscription::factory()->for($other)->for($plan)->create();
+        $headers = ['X-Company-Id' => $company->id];
+
+        $this->getJson('/api/v1/platform/subscription/history?per_page=1', $headers)
+            ->assertOk()->assertJsonPath('data.0.id', $latest->id)->assertJsonPath('total', 2)
+            ->assertJsonMissingPath('data.0.provider_reference')->assertJsonMissingPath('data.0.payment_status');
+        $this->getJson('/api/v1/platform/subscription/history?per_page=101', $headers)->assertUnprocessable();
+        $this->getJson('/api/v1/platform/subscription/history', ['X-Company-Id' => $other->id])->assertForbidden();
+
+        [, $viewerCompany] = $this->actingAsCompanyUser([]);
+        $this->getJson('/api/v1/platform/subscription/history', ['X-Company-Id' => $viewerCompany->id])->assertForbidden();
+    }
+
     public function test_invitation_can_be_created_and_existing_user_accepts_it_once(): void
     {
         [, $company] = $this->actingAsCompanyUser(['platform.invitations.manage']);

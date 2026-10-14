@@ -17,7 +17,7 @@ class PakistanFbrInvoice extends Model
     /** @use HasFactory<PakistanFbrInvoiceFactory> */
     use HasFactory, HasUuids;
 
-    protected $fillable = ['company_id', 'customer_id', 'is_historical', 'document_state', 'legacy_import_run_id', 'legacy_source_system', 'legacy_source_id', 'legacy_original_company_id', 'legacy_status', 'historical_accounting_state', 'migration_reconciliation_state', 'buyer_snapshot', 'legacy_original_timestamps', 'legacy_original_financial_values', 'sequence', 'invoice_number', 'invoice_date', 'due_date', 'invoice_type', 'sale_type', 'origin_province', 'destination_province', 'currency', 'subtotal', 'discount', 'taxable_amount', 'sales_tax', 'other_tax', 'advance_tax', 'withholding_tax', 'total', 'amount_paid', 'notes', 'fbr_status', 'fbr_reference_number', 'fbr_response_metadata', 'creation_idempotency_key', 'creation_idempotency_hash', 'created_by', 'updated_by'];
+    protected $fillable = ['company_id', 'customer_id', 'is_historical', 'document_state', 'legacy_import_run_id', 'legacy_source_system', 'legacy_source_id', 'legacy_original_company_id', 'legacy_status', 'historical_accounting_state', 'migration_reconciliation_state', 'buyer_snapshot', 'seller_snapshot', 'print_snapshot', 'legacy_original_timestamps', 'legacy_original_financial_values', 'sequence', 'invoice_number', 'invoice_date', 'due_date', 'invoice_type', 'sale_type', 'origin_province', 'destination_province', 'currency', 'subtotal', 'discount', 'taxable_amount', 'sales_tax', 'other_tax', 'advance_tax', 'withholding_tax', 'total', 'amount_paid', 'notes', 'fbr_status', 'fbr_reference_number', 'fbr_response_metadata', 'creation_idempotency_key', 'creation_idempotency_hash', 'created_by', 'updated_by'];
 
     protected $hidden = ['creation_idempotency_key', 'creation_idempotency_hash'];
 
@@ -26,7 +26,7 @@ class PakistanFbrInvoice extends Model
     protected function casts(): array
     {
         return [
-            'is_historical' => 'boolean', 'buyer_snapshot' => 'array', 'legacy_original_timestamps' => 'array',
+            'is_historical' => 'boolean', 'buyer_snapshot' => 'array', 'seller_snapshot' => 'array', 'print_snapshot' => 'array', 'legacy_original_timestamps' => 'array',
             'legacy_original_financial_values' => 'array', 'invoice_date' => 'date:Y-m-d', 'due_date' => 'date:Y-m-d',
             'fbr_status' => FbrSubmissionStatus::class, 'fbr_response_metadata' => 'array', 'sequence' => 'integer',
             'subtotal' => 'integer', 'discount' => 'integer', 'taxable_amount' => 'integer', 'sales_tax' => 'integer',
@@ -42,9 +42,7 @@ class PakistanFbrInvoice extends Model
             }
         });
         static::deleting(function (self $invoice): void {
-            if ($invoice->is_historical || $invoice->fbr_status !== FbrSubmissionStatus::NotSubmitted) {
-                throw new LogicException('Historical or submitted FBR Invoices cannot be deleted.');
-            }
+            throw new LogicException('FBR Invoices must retain their lifecycle and audit evidence; use the draft deletion transition.');
         });
     }
 
@@ -68,6 +66,19 @@ class PakistanFbrInvoice extends Model
         return $this->hasMany(PakistanFbrSubmissionAttempt::class, 'invoice_id');
     }
 
+    public function creditNotes(): HasMany
+    {
+        return $this->hasMany(PakistanFbrCreditNote::class, 'invoice_id');
+    }
+
+    public function canCreateInternalCreditNote(): bool
+    {
+        return ! $this->is_historical && $this->document_state === 'ISSUED'
+            && $this->fbr_reference_number !== null
+            && $this->fbr_status === FbrSubmissionStatus::Accepted
+            && ! ($this->relationLoaded('creditNotes') ? $this->creditNotes->isNotEmpty() : $this->creditNotes()->exists());
+    }
+
     public function legacyFbrEvidence(): HasMany
     {
         return $this->hasMany(LegacyFbrEvidence::class, 'invoice_id');
@@ -83,6 +94,18 @@ class PakistanFbrInvoice extends Model
         return ! $this->is_historical && $this->document_state === 'DRAFT'
             && $this->fbr_reference_number === null
             && in_array($this->fbr_status, [FbrSubmissionStatus::NotSubmitted, FbrSubmissionStatus::Rejected], true);
+    }
+
+    public function isDeletableDraft(): bool
+    {
+        $hasAttempts = array_key_exists('fbr_attempts_exists', $this->getAttributes())
+            ? (bool) $this->getAttribute('fbr_attempts_exists')
+            : $this->fbrAttempts()->exists();
+
+        return ! $this->is_historical && $this->document_state === 'DRAFT'
+            && $this->fbr_status === FbrSubmissionStatus::NotSubmitted
+            && $this->fbr_reference_number === null
+            && ! $hasAttempts;
     }
 
     public function scenarioId(): ?string

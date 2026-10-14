@@ -3,6 +3,7 @@
 namespace App\Services\Platform;
 
 use App\Exceptions\PlatformException;
+use App\Models\Company;
 use App\Models\CompanyInvitation;
 use App\Models\CompanyUser;
 use App\Models\Role;
@@ -19,28 +20,32 @@ class InvitationService
     public function invite(string $companyId, string $email, array $roleIds, User $inviter): array
     {
         $email = Str::lower($email);
-        $currentUsers = CompanyUser::query()->where('company_id', $companyId)->where('is_active', true)->count()
-            + CompanyInvitation::query()->where('company_id', $companyId)->where('status', 'PENDING')->where('expires_at', '>', now())->count();
-        $this->entitlements->assertWithinLimit($companyId, 'users', $currentUsers);
-        if (CompanyInvitation::query()->where('company_id', $companyId)->where('email', $email)->where('status', 'PENDING')->where('expires_at', '>', now())->exists()) {
-            throw new PlatformException('INVITATION_ALREADY_PENDING', 'An active invitation already exists for this email.', 409);
-        }
-        if (CompanyUser::query()->where('company_id', $companyId)->whereHas('user', fn ($query) => $query->where('email', $email))->where('is_active', true)->exists()) {
-            throw new PlatformException('MEMBERSHIP_ALREADY_EXISTS', 'This user is already an active company member.', 409);
-        }
 
-        $validRoles = Role::query()->where('company_id', $companyId)->whereNull('archived_at')->whereKey($roleIds)->pluck('id')->all();
-        if (count($validRoles) !== count(array_unique($roleIds))) {
-            throw new PlatformException('TENANT_ACCESS_DENIED', 'One or more selected roles do not belong to this company.', 403);
-        }
+        return DB::transaction(function () use ($companyId, $email, $roleIds, $inviter): array {
+            Company::query()->whereKey($companyId)->lockForUpdate()->firstOrFail();
+            $currentUsers = CompanyUser::query()->where('company_id', $companyId)->where('is_active', true)->count()
+                + CompanyInvitation::query()->where('company_id', $companyId)->where('status', 'PENDING')->where('expires_at', '>', now())->count();
+            $this->entitlements->assertWithinLimit($companyId, 'users', $currentUsers);
+            if (CompanyInvitation::query()->where('company_id', $companyId)->where('email', $email)->where('status', 'PENDING')->where('expires_at', '>', now())->exists()) {
+                throw new PlatformException('INVITATION_ALREADY_PENDING', 'An active invitation already exists for this email.', 409);
+            }
+            if (CompanyUser::query()->where('company_id', $companyId)->whereHas('user', fn ($query) => $query->where('email', $email))->where('is_active', true)->exists()) {
+                throw new PlatformException('MEMBERSHIP_ALREADY_EXISTS', 'This user is already an active company member.', 409);
+            }
 
-        $token = Str::random(64);
-        $invitation = CompanyInvitation::query()->create([
-            'company_id' => $companyId, 'email' => $email, 'token_hash' => hash('sha256', $token),
-            'status' => 'PENDING', 'role_ids' => $validRoles, 'invited_by' => $inviter->id, 'expires_at' => now()->addDays(7),
-        ]);
+            $validRoles = Role::query()->where('company_id', $companyId)->whereNull('archived_at')->whereKey($roleIds)->pluck('id')->all();
+            if (count($validRoles) !== count(array_unique($roleIds))) {
+                throw new PlatformException('TENANT_ACCESS_DENIED', 'One or more selected roles do not belong to this company.', 403);
+            }
 
-        return compact('invitation', 'token');
+            $token = Str::random(64);
+            $invitation = CompanyInvitation::query()->create([
+                'company_id' => $companyId, 'email' => $email, 'token_hash' => hash('sha256', $token),
+                'status' => 'PENDING', 'role_ids' => $validRoles, 'invited_by' => $inviter->id, 'expires_at' => now()->addDays(7),
+            ]);
+
+            return compact('invitation', 'token');
+        });
     }
 
     /** @return array{membership:CompanyUser,user:User,already_accepted:bool} */

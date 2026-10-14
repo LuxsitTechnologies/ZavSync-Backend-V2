@@ -5,6 +5,7 @@ namespace App\Services\Platform;
 use App\Exceptions\PlatformException;
 use App\Models\Company;
 use App\Models\CompanyAnnouncement;
+use App\Models\CompanySetting;
 use App\Models\CrmAccount;
 use App\Models\CrmDeal;
 use App\Models\CrmLead;
@@ -17,6 +18,7 @@ use App\Models\EmployeeTicket;
 use App\Models\InventoryItem;
 use App\Models\Invoice;
 use App\Models\LeaveRequest;
+use App\Models\PakistanFbrInvoice;
 use App\Models\PayrollBatch;
 use App\Models\PurchaseOrder;
 use App\Models\Supplier;
@@ -88,6 +90,13 @@ class DocumentService
 
     public function delete(Document $document): void
     {
+        if ($document->category === 'logo' && (
+            CompanySetting::query()->where('company_id', $document->company_id)->where('logo_path', $document->id)->exists()
+            || PakistanFbrInvoice::query()->where('company_id', $document->company_id)
+                ->where('print_snapshot->portal->logo_document_id', $document->id)->exists()
+        )) {
+            throw new PlatformException('DOCUMENT_IN_USE', 'This logo is in use by current settings or a submitted FBR document.', 409);
+        }
         Storage::disk($document->storage_disk)->delete($document->storage_key);
         $document->delete();
     }

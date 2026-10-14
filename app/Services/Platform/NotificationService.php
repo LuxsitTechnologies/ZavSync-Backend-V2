@@ -9,7 +9,8 @@ use App\Models\PlatformNotification;
 class NotificationService
 {
     /** @var array<int, string> */
-    public const CRITICAL_TYPES = ['security.login', 'security.password_changed', 'security.membership_suspended'];
+    public const CRITICAL_TYPES = ['security.login', 'security.password_changed', 'security.membership_suspended',
+        'billing.payment_failed', 'billing.payment_reminder', 'billing.payment_final_notice'];
 
     /** @param array<string, mixed> $metadata */
     public function createInApp(string $companyId, int $recipientId, string $type, string $title, string $message, array $metadata = [], ?string $relatedUrl = null): PlatformNotification

@@ -26,4 +26,9 @@ class AiProviderConfiguration extends Model
     {
         return $this->belongsTo(Company::class);
     }
+
+    public function maximumOutputTokens(): int
+    {
+        return max(64, min(32768, (int) ($this->settings['max_output_tokens'] ?? 4096)));
+    }
 }

@@ -2,6 +2,7 @@
 
 namespace App\Services\Platform;
 
+use App\Models\Company;
 use App\Models\CompanyNavigationPreference;
 use App\Models\PlatformModule;
 
@@ -17,10 +18,11 @@ class NavigationVisibilityService
         'hrm.employees' => ['Employees', 'payroll', 'payroll.view', 'People'],
         'hrm.attendance' => ['Attendance', 'payroll', 'attendance.view', 'People'],
         'hrm.leave' => ['Leave', 'payroll', 'leave.view', 'People'],
-        'fbr.invoicing' => ['FBR Invoicing', 'invoicing', 'pakistan_fbr.view', 'Finance'],
-        'fbr.configuration' => ['FBR Configuration', 'invoicing', 'fbr.configuration.view', 'Finance'],
-        'fbr.migrations' => ['FBR Migration Administration', 'invoicing', 'migration.view', 'Finance'],
+        'fbr.invoicing' => ['FBR Invoice', 'fbr', 'pakistan_fbr.view', 'Finance'],
+        'fbr.configuration' => ['FBR Configuration', 'fbr', 'fbr.configuration.view', 'Finance'],
+        'fbr.migrations' => ['FBR Migration Administration', 'fbr', 'migration.view', 'Finance'],
         'accounting.invoices' => ['Accounting Invoices', 'invoicing', 'accounting.view', 'Finance'],
+        'accounting.fbr_status' => ['Accounting Invoice FBR Status', 'invoicing', 'accounting.view', 'Finance'],
         'accounting.chart' => ['Chart of Accounts', 'accounting', 'accounting.view', 'Finance'],
         'accounting.ledger' => ['General Ledger', 'accounting', 'accounting.view', 'Finance'],
         'accounting.journals' => ['Journals', 'accounting', 'accounting.view', 'Finance'],
@@ -92,6 +94,18 @@ class NavigationVisibilityService
         'hrm.shift_swaps' => ['Shift Swap Decisions', 'payroll', 'schedules.view', 'People'],
     ];
 
+    /** @var array<string, string> */
+    private const PARENT_LABELS = [
+        'people.hrm' => 'HRM',
+        'finance.fbr' => 'FBR Invoice',
+        'finance.accounting' => 'Accounting',
+        'finance.payroll' => 'Payroll',
+        'operations.crm' => 'CRM',
+        'intelligence.ai' => 'ZavSync AI',
+        'intelligence.knowledge' => 'Knowledge',
+        'intelligence.outreach' => 'Outreach',
+    ];
+
     public function __construct(private readonly EntitlementService $entitlements) {}
 
     public function hasItem(string $key): bool
@@ -99,9 +113,10 @@ class NavigationVisibilityService
         return array_key_exists($key, self::ITEMS);
     }
 
-    /** @param array<int, string> $permissions @return array{catalog: array<int, array<string, mixed>>, items: array<int, array<string, mixed>>, visible_keys: array<int, string>} */
+    /** @param array<int, string> $permissions @return array{catalog: array<int, array<string, mixed>>, items: array<int, array<string, mixed>>, parents: array<int, array<string, mixed>>, visible_keys: array<int, string>} */
     public function resolve(string $companyId, array $permissions): array
     {
+        $commerciallyManaged = (bool) Company::query()->whereKey($companyId)->value('billing_policy_applies');
         $modules = PlatformModule::query()->orderBy('name')->get()->keyBy('key');
         $entitledKeys = $this->entitlements->enabledModules($companyId);
         $preferences = CompanyNavigationPreference::query()->where('company_id', $companyId)->get()->keyBy('item_key');
@@ -109,6 +124,9 @@ class NavigationVisibilityService
         $items = [];
 
         foreach (self::ITEMS as $key => [$label, $moduleKey, $permission, $group]) {
+            if (str_starts_with($key, 'fbr.') && ! $commerciallyManaged) {
+                $moduleKey = 'invoicing';
+            }
             $module = $modules->get($moduleKey);
             $active = $module !== null && $module->is_active;
             $entitled = in_array($moduleKey, $entitledKeys, true);
@@ -124,11 +142,23 @@ class NavigationVisibilityService
             };
             $items[] = [
                 'key' => $key, 'label' => $label, 'group' => $group, 'order' => count($items),
+                'parent_key' => $this->parentKey($key),
                 'module_key' => $moduleKey, 'required_permission' => $permission,
                 'platform_active' => $active, 'entitled' => $entitled, 'authorized' => $authorized,
                 'visibility_override' => $visibilityOverride,
                 'presentation_visible' => $presentationVisible, 'effective_visible' => $reason === null,
                 'unavailable_reason' => $reason,
+            ];
+        }
+
+        $parents = [];
+        foreach (self::PARENT_LABELS as $parentKey => $parentLabel) {
+            $children = array_values(array_filter($items, fn (array $item): bool => $item['parent_key'] === $parentKey));
+            $parents[] = [
+                'key' => $parentKey, 'label' => $parentLabel,
+                'child_keys' => array_column($children, 'key'),
+                'visible_child_keys' => array_column(array_filter($children, fn (array $item): bool => $item['effective_visible']), 'key'),
+                'effective_visible' => count(array_filter($children, fn (array $item): bool => $item['effective_visible'])) > 0,
             ];
         }
 
@@ -138,7 +168,25 @@ class NavigationVisibilityService
                 'entitled' => in_array($module->key, $entitledKeys, true),
             ])->all(),
             'items' => $items,
+            'parents' => $parents,
             'visible_keys' => array_values(array_column(array_filter($items, fn (array $item): bool => $item['effective_visible']), 'key')),
         ];
+    }
+
+    private function parentKey(string $key): ?string
+    {
+        return match (true) {
+            str_starts_with($key, 'hrm.') => 'people.hrm',
+            str_starts_with($key, 'fbr.') => 'finance.fbr',
+            str_starts_with($key, 'accounting.'), str_starts_with($key, 'receivables.'),
+            str_starts_with($key, 'payables.'), str_starts_with($key, 'banking.'),
+            str_starts_with($key, 'budgeting.'), $key === 'inventory.ledger' => 'finance.accounting',
+            str_starts_with($key, 'payroll.') => 'finance.payroll',
+            str_starts_with($key, 'crm.') => 'operations.crm',
+            str_starts_with($key, 'outreach.') => 'intelligence.outreach',
+            str_starts_with($key, 'ai.knowledge_') => 'intelligence.knowledge',
+            str_starts_with($key, 'ai.') => 'intelligence.ai',
+            default => null,
+        };
     }
 }

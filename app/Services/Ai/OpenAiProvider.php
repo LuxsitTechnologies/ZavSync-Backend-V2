@@ -30,8 +30,8 @@ class OpenAiProvider implements AiChatProvider, EmbeddingProvider
         if ($request->tools !== []) {
             $payload['tools'] = collect($request->tools)->map(fn (array $tool): array => ['type' => 'function', 'name' => $tool['name'], 'description' => $tool['description'], 'parameters' => ['type' => 'object', 'properties' => (object) [], 'additionalProperties' => true]])->all();
         }
-        if (isset($configuration->settings['max_output_tokens'])) {
-            $payload['max_output_tokens'] = (int) $configuration->settings['max_output_tokens'];
+        if (isset($configuration->settings['max_output_tokens']) || $configuration->company?->billing_policy_applies) {
+            $payload['max_output_tokens'] = $configuration->maximumOutputTokens();
         }
         if (isset($configuration->settings['temperature'])) {
             $payload['temperature'] = (float) $configuration->settings['temperature'];

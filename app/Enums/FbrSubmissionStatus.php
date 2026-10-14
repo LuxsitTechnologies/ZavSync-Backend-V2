@@ -6,6 +6,7 @@ enum FbrSubmissionStatus: string
 {
     case NotSubmitted = 'not_submitted';
     case Pending = 'pending';
+    case Uncertain = 'uncertain';
     case Submitted = 'submitted';
     case Accepted = 'accepted';
     case Rejected = 'rejected';

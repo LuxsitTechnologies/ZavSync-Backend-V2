@@ -2,6 +2,7 @@
 
 namespace App\Models;
 
+use App\Exceptions\PlatformException;
 use Illuminate\Database\Eloquent\Concerns\HasUuids;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
@@ -12,11 +13,20 @@ class Company extends Model
 {
     use HasFactory, HasUuids;
 
-    protected $fillable = ['name', 'slug', 'currency', 'timezone', 'is_active'];
+    protected static function booted(): void
+    {
+        static::deleting(function (): never {
+            throw new PlatformException('COMPANY_DELETION_RETAINED', 'Company records are retained; deactivate the company instead.', 409);
+        });
+    }
+
+    protected $fillable = ['name', 'slug', 'currency', 'timezone', 'is_active', 'approval_status', 'company_size', 'province_code', 'profile_version', 'created_by', 'creation_idempotency_key', 'creation_idempotency_hash', 'billing_policy_applies'];
+
+    protected $hidden = ['creation_idempotency_key', 'creation_idempotency_hash'];
 
     protected function casts(): array
     {
-        return ['is_active' => 'boolean'];
+        return ['is_active' => 'boolean', 'billing_policy_applies' => 'boolean', 'profile_version' => 'integer', 'fbr_credit_note_sequence' => 'integer'];
     }
 
     public function customers(): HasMany
@@ -82,6 +92,11 @@ class Company extends Model
     public function settings(): HasOne
     {
         return $this->hasOne(CompanySetting::class);
+    }
+
+    public function fbrConfiguration(): HasOne
+    {
+        return $this->hasOne(FbrCompanyConfiguration::class);
     }
 
     public function subscriptions(): HasMany

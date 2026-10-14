@@ -190,7 +190,10 @@ class IntelligenceOperationsTest extends TestCase
         $this->assertSame('AI_PROVIDER_UNSAFE_RESPONSE', $briefing->enrichment_error_code);
         $this->assertNull($briefing->narrative);
         $this->assertStringNotContainsString('test-key', json_encode($briefing->toArray(), JSON_THROW_ON_ERROR));
-        $this->assertDatabaseMissing('ai_usage_records', ['company_id' => $context['company']->id, 'operation' => 'MANAGEMENT_BRIEFING']);
+        $this->assertDatabaseHas('ai_usage_records', ['company_id' => $context['company']->id,
+            'operation' => 'MANAGEMENT_BRIEFING', 'input_tokens' => 3, 'output_tokens' => 2]);
+        $this->assertStringNotContainsString('test-key', json_encode(AiUsageRecord::query()
+            ->where('company_id', $context['company']->id)->firstOrFail()->metadata, JSON_THROW_ON_ERROR));
     }
 
     public function test_scheduled_briefing_opt_in_is_tenant_isolated(): void

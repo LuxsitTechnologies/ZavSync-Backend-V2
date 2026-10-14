@@ -4,6 +4,7 @@ namespace App\Services\Fbr;
 
 use App\Contracts\FbrGateway;
 use App\Enums\FbrSubmissionStatus;
+use App\Exceptions\FbrOutcomeUncertainException;
 use App\Exceptions\FbrUnavailableException;
 use Illuminate\Support\Arr;
 use Illuminate\Support\Facades\Http;
@@ -25,13 +26,13 @@ class HttpFbrGateway implements FbrGateway
                 ->withHeaders(['Idempotency-Key' => $idempotencyKey])
                 ->post($context->endpoint, $payload);
         } catch (Throwable) {
-            throw new FbrUnavailableException('FBR is currently unavailable. The submission can be retried safely.');
+            throw new FbrOutcomeUncertainException('The FBR outcome is uncertain. Reconciliation is required before another submission.');
         }
         $decodedBody = $response->json();
         $body = is_array($decodedBody) ? $decodedBody : [];
         $metadata = $body !== [] ? Arr::only($body, ['status', 'code', 'message', 'errors', 'timestamp', 'invoiceNumber', 'referenceNumber']) : ['status_code' => $response->status()];
         if ($response->serverError() || $response->redirect()) {
-            throw new FbrUnavailableException('FBR is currently unavailable. The submission can be retried safely.');
+            throw new FbrOutcomeUncertainException('The FBR outcome is uncertain. Reconciliation is required before another submission.');
         }
         if ($response->failed()) {
             return new FbrSubmissionResult(FbrSubmissionStatus::Rejected, null, $metadata, is_string($metadata['message'] ?? null) ? $metadata['message'] : 'FBR rejected the invoice.');

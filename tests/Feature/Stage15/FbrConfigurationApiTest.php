@@ -74,6 +74,24 @@ class FbrConfigurationApiTest extends TestCase
         $this->getJson('/api/v1/pakistan-fbr/reference-data', ['X-Company-Id' => $restricted[1]->id])->assertForbidden();
     }
 
+    public function test_reference_search_is_bounded_source_labeled_and_does_not_claim_fixture_completeness(): void
+    {
+        [, $company] = $this->actingAsCompanyUser(['fbr.configuration.view']);
+        FbrReferenceValue::factory()->create(['category' => 'HS_CODE', 'code' => '8432.1010', 'label' => 'Chisel ploughs', 'source' => 'FBR_PDI', 'source_version' => 'verified-fixture']);
+        FbrReferenceValue::factory()->create(['category' => 'HS_CODE', 'code' => '8432.1020', 'label' => 'Other ploughs', 'source' => 'LOCAL_FIXTURE']);
+        FbrReferenceValue::factory()->create(['category' => 'UOM', 'code' => 'CHISEL', 'label' => 'Chisel', 'source' => 'FBR_PDI']);
+        $headers = ['X-Company-Id' => $company->id];
+
+        $this->getJson('/api/v1/pakistan-fbr/reference-data/search?category=HS_CODE&search=ploughs&source=FBR_PDI&per_page=1', $headers)
+            ->assertOk()->assertJsonPath('data.0.code', '8432.1010')->assertJsonPath('data.0.source', 'FBR_PDI')
+            ->assertJsonPath('meta.total', 1);
+        $this->getJson('/api/v1/pakistan-fbr/reference-data/search?category=HS_CODE&search=84&per_page=1&page=2', $headers)
+            ->assertOk()->assertJsonPath('meta.total', 2);
+        $this->getJson('/api/v1/pakistan-fbr/reference-data/search?category=HS_CODE&search=a', $headers)->assertUnprocessable();
+        $this->getJson('/api/v1/pakistan-fbr/reference-data/search?category=HS_CODE&search=84&per_page=1000', $headers)->assertUnprocessable();
+        $this->getJson('/api/v1/pakistan-fbr/reference-data/search?category=BAD&search=84', $headers)->assertUnprocessable();
+    }
+
     public function test_fbr_configuration_requires_invoicing_entitlement(): void
     {
         [, $company] = $this->actingAsCompanyUser(['fbr.configuration.view']);

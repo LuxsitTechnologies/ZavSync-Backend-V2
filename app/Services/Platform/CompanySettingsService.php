@@ -45,11 +45,22 @@ class CompanySettingsService
         }
 
         return DB::transaction(function () use ($company, $data, $settings, $user): CompanySetting {
+            $company = Company::query()->lockForUpdate()->findOrFail($company->id);
+            if ($company->profile_version >= PHP_INT_MAX) {
+                throw new PlatformException('COMPANY_PROFILE_VERSION_EXHAUSTED', 'The company profile version is exhausted.', 409);
+            }
             $settings->update([...$data, 'updated_by' => $user->id]);
+            if ($company->approval_status === 'APPROVED'
+                && ((array_key_exists('email', $data) && blank($settings->email))
+                    || (array_key_exists('tax_identifier', $data)
+                        && ! preg_match('/^[A-Za-z0-9]{7,13}$/', (string) $settings->tax_identifier)))) {
+                throw new PlatformException('COMPANY_PROFILE_INCOMPLETE', 'An approved company must retain its legal email and valid NTN/CNIC.', 409);
+            }
             $company->update([
                 'name' => $data['legal_name'] ?? $company->name,
                 'currency' => $data['base_currency'] ?? $company->currency,
                 'timezone' => $data['timezone'] ?? $company->timezone,
+                'profile_version' => $company->profile_version + 1,
             ]);
 
             return $settings->fresh();
