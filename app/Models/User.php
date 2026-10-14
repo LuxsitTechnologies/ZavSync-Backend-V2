@@ -26,6 +26,11 @@ class User extends Authenticatable implements MustVerifyEmail
         return $this->belongsToMany(Company::class, 'company_users')->withPivot(['role_id', 'is_active'])->withTimestamps();
     }
 
+    public function platformPermissions(): BelongsToMany
+    {
+        return $this->belongsToMany(Permission::class, 'platform_user_permission');
+    }
+
     public function belongsToCompany(string $companyId): bool
     {
         return $this->companies()->whereKey($companyId)->wherePivot('is_active', true)->exists();

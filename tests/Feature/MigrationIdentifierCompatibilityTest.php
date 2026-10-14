@@ -13,6 +13,11 @@ class MigrationIdentifierCompatibilityTest extends TestCase
 {
     private const FORWARD_ONLY = '2026_10_02_094522_enforce_exact_technical_identifier_collations.php';
 
+    private const DATA_ONLY = [
+        '2026_10_14_000001_migrate_platform_authority_grants.php',
+        '2026_10_14_000002_migrate_company_admin_system_roles.php',
+    ];
+
     public function test_complete_migration_chain_has_portable_identifiers_and_reversible_index_names(): void
     {
         $connection = new class(null, 'static_only', '', ['driver' => 'mysql', 'charset' => 'utf8mb4', 'collation' => 'utf8mb4_unicode_ci']) extends MySqlConnection
@@ -125,11 +130,19 @@ class MigrationIdentifierCompatibilityTest extends TestCase
             } else {
                 $this->assertFalse(defined(get_class($migration).'::FORWARD_ONLY_DRIVERS'), 'New forward-only migrations require explicit compatibility review.');
             }
+            if (in_array(basename($file), self::DATA_ONLY, true)) {
+                $this->assertTrue($migration::DATA_ONLY);
+
+                continue;
+            }
             $migration->up();
         }
         $builder->phase = 'down';
         foreach (array_reverse($files) as $file) {
             $builder->migration = basename($file);
+            if (in_array(basename($file), self::DATA_ONLY, true)) {
+                continue;
+            }
             if (basename($file) !== self::FORWARD_ONLY) {
                 (require $file)->down();
 

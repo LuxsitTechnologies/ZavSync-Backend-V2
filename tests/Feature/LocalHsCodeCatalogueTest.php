@@ -16,6 +16,7 @@ class LocalHsCodeCatalogueTest extends TestCase
         $path = '/api/v1/platform/fbr/hs-codes';
         $this->postJson($path, ['code' => '1234.5678', 'description' => 'A locally managed product'], $headers)->assertForbidden();
         $user->forceFill(['is_platform_admin' => true])->save();
+        $this->migratePlatformPermissionsForTest($user);
 
         $id = $this->postJson($path, ['code' => '1234.5678', 'description' => 'A locally managed product'], $headers)
             ->assertCreated()->assertJsonPath('source', 'LOCAL_MANAGED')->assertJsonPath('label', 'A locally managed product')->json('id');

@@ -67,6 +67,7 @@ class PlatformProductionHardeningTest extends TestCase
     {
         [$user, $company] = $this->actingAsCompanyUser(['platform.plans.manage']);
         $user->forceFill(['is_platform_admin' => true])->save();
+        $this->migratePlatformPermissionsForTest($user);
         PlatformModule::factory()->create(['key' => 'crm']);
 
         $this->postJson('/api/v1/platform/plans', [

@@ -10,9 +10,14 @@ use Illuminate\Support\Collection;
 
 class PlatformAccessService
 {
+    public function __construct(private readonly PlatformAuthority $platformAuthority) {}
+
     public function authorize(User $user, string $companyId, string $permission): void
     {
-        if (! $user->hasCompanyPermission($companyId, $permission)) {
+        $allowed = $this->platformAuthority->isGlobal($permission)
+            ? $this->platformAuthority->allows($user, $permission)
+            : $user->hasCompanyPermission($companyId, $permission);
+        if (! $allowed) {
             throw new PlatformException('PERMISSION_DENIED', 'You do not have permission to perform this action.', 403);
         }
     }
@@ -31,6 +36,7 @@ class PlatformAccessService
             ->filter()
             ->flatMap(fn ($role) => $role->permissions)
             ->pluck('name')
+            ->reject(fn (string $name): bool => $this->platformAuthority->isGlobal($name))
             ->unique()
             ->values()
             ->all();

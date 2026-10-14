@@ -10,6 +10,7 @@ use App\Models\SecurityEvent;
 use App\Models\User;
 use App\Services\Platform\EntitlementService;
 use App\Services\Platform\NavigationVisibilityService;
+use App\Services\Platform\PlatformAuthority;
 use Illuminate\Auth\Events\PasswordReset;
 use Illuminate\Auth\Events\Verified;
 use Illuminate\Database\UniqueConstraintViolationException;
@@ -26,6 +27,7 @@ class AuthController extends Controller
     public function __construct(
         private readonly EntitlementService $entitlements,
         private readonly NavigationVisibilityService $navigation,
+        private readonly PlatformAuthority $platformAuthority,
     ) {}
 
     public function register(Request $request): JsonResponse
@@ -173,7 +175,8 @@ class AuthController extends Controller
             ->where('user_id', $user->id)->where('is_active', true)->get();
 
         return [
-            'user' => ['id' => $user->id, 'name' => $user->name, 'email' => $user->email, 'email_verified' => $user->hasVerifiedEmail(), 'is_platform_admin' => $user->is_platform_admin],
+            'user' => ['id' => $user->id, 'name' => $user->name, 'email' => $user->email, 'email_verified' => $user->hasVerifiedEmail(), 'is_platform_admin' => $user->is_platform_admin,
+                'platform_permissions' => $this->platformAuthority->permissions($user)],
             'companies' => $memberships->map(fn (CompanyUser $membership): array => $this->companyPayload($user->id, $membership->company_id, $membership))->values(),
         ];
     }
@@ -184,14 +187,21 @@ class AuthController extends Controller
         $membership ??= CompanyUser::query()->with(['company', 'role.permissions', 'roles.permissions'])
             ->where('company_id', $companyId)->where('user_id', $userId)->where('is_active', true)->firstOrFail();
         $permissions = collect([$membership->role])->merge($membership->roles)->filter()
-            ->flatMap(fn ($role) => $role->permissions)->pluck('name')->unique()->values();
+            ->flatMap(fn ($role) => $role->permissions)->pluck('name')
+            ->reject(fn (string $name): bool => $this->platformAuthority->isGlobal($name))->unique()->values();
+        $modules = $this->entitlements->enabledModules($companyId);
+        $isOwner = (int) $membership->company->created_by === $userId;
+        $employeeLinked = $membership->employee_id !== null;
 
         return [
             'id' => $membership->company->id, 'name' => $membership->company->name,
             'currency' => $membership->company->currency, 'timezone' => $membership->company->timezone,
             'approval_status' => $membership->company->approval_status, 'is_active' => $membership->company->is_active,
+            'is_company_owner' => $isOwner,
+            'employee_linked' => $employeeLinked,
+            'employee_portal_available' => $employeeLinked && ($permissions->contains('employee.self.view') || $permissions->contains('*')) && in_array('payroll', $modules, true),
             'roles' => collect([$membership->role])->merge($membership->roles)->filter()->pluck('name')->unique()->values(),
-            'permissions' => $permissions, 'modules' => $this->entitlements->enabledModules($companyId),
+            'permissions' => $permissions, 'modules' => $modules,
             'effective_navigation' => $this->navigation->resolve($companyId, $permissions->all()),
         ];
     }

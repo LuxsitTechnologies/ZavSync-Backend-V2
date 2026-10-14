@@ -9,6 +9,7 @@ use App\Models\Permission;
 use App\Models\Role;
 use App\Services\AuditService;
 use App\Services\Platform\PlatformAccessService;
+use App\Services\Platform\PlatformAuthority;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
@@ -21,10 +22,15 @@ class RoleController extends Controller
     {
         $companyId = $this->companyId($request);
         $this->access->authorize($request->user(), $companyId, 'platform.roles.view');
-        $roles = Role::query()->with('permissions:id,name,description')->withCount(['memberships', 'permissions'])
+        $roles = Role::query()->with('permissions:id,name,description')->withCount('permissions')
             ->where('company_id', $companyId)->orderBy('name')->get();
+        $roles->each(fn (Role $role) => $role->setAttribute('memberships_count', CompanyUser::query()
+            ->where('company_id', $companyId)->where('is_active', true)
+            ->where(fn ($query) => $query->where('role_id', $role->id)
+                ->orWhereHas('roles', fn ($assigned) => $assigned->whereKey($role->id)))
+            ->count()));
 
-        return response()->json(['roles' => $roles, 'permissions' => Permission::query()->orderBy('name')->get()]);
+        return response()->json(['roles' => $roles, 'permissions' => Permission::query()->whereNotIn('name', PlatformAuthority::PERMISSIONS)->orderBy('name')->get()]);
     }
 
     public function store(Request $request): JsonResponse
@@ -103,6 +109,9 @@ class RoleController extends Controller
     /** @param array<int, int> $permissionIds */
     private function preventEscalation(Request $request, string $companyId, array $permissionIds): void
     {
+        if (Permission::query()->whereKey($permissionIds)->whereIn('name', PlatformAuthority::PERMISSIONS)->exists()) {
+            throw new PlatformException('PRIVILEGE_ESCALATION_DENIED', 'Global platform permissions cannot be assigned to company roles.', 403);
+        }
         $actor = CompanyUser::query()->with(['role.permissions', 'roles.permissions'])->where('company_id', $companyId)->where('user_id', $request->user()->id)->firstOrFail();
         $owned = collect([$actor->role])->merge($actor->roles)->filter()->flatMap(fn ($role) => $role->permissions)->pluck('id')->unique();
         if (! $request->user()->hasCompanyPermission($companyId, '*') && collect($permissionIds)->diff($owned)->isNotEmpty()) {

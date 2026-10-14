@@ -83,6 +83,7 @@ class PlatformAuditSecuritySystemTest extends TestCase
     {
         [$user, $company] = $this->actingAsCompanyUser(['platform.jobs.view']);
         $user->forceFill(['is_platform_admin' => true])->save();
+        $this->migratePlatformPermissionsForTest($user);
         DB::table('failed_jobs')->insert([
             'uuid' => '3f330bb1-b130-49c6-90ee-8deab7fc5e9b', 'connection' => 'database', 'queue' => 'default',
             'payload' => json_encode(['displayName' => 'SafeJob', 'secret' => 'must-not-leak']), 'exception' => "RuntimeException: failed\ntrace", 'failed_at' => now(),

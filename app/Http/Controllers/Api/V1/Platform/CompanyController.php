@@ -9,12 +9,11 @@ use App\Models\CompanySetting;
 use App\Models\CompanyUser;
 use App\Models\FbrCompanyConfiguration;
 use App\Models\FbrReferenceValue;
-use App\Models\Permission;
 use App\Models\Plan;
-use App\Models\Role;
 use App\Models\Subscription;
 use App\Models\User;
 use App\Services\AuditService;
+use App\Services\Platform\CompanyAdminRoleService;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
@@ -25,7 +24,7 @@ use Symfony\Component\HttpKernel\Exception\ConflictHttpException;
 
 class CompanyController extends Controller
 {
-    public function __construct(private readonly AuditService $audit) {}
+    public function __construct(private readonly AuditService $audit, private readonly CompanyAdminRoleService $adminRoles) {}
 
     public function onboardingPlans(): JsonResponse
     {
@@ -119,12 +118,7 @@ class CompanyController extends Controller
                     'updated_by' => $request->user()->id,
                 ]);
             }
-            $role = Role::query()->create(['company_id' => $company->id, 'name' => 'Company Administrator', 'is_system' => true]);
-            $platformOnly = $request->user()->is_platform_admin ? [] : [
-                'platform.plans.manage', 'platform.jobs.view', 'platform.jobs.manage',
-                'platform.companies.view', 'platform.companies.approve', 'platform.companies.activate',
-            ];
-            $role->permissions()->sync(Permission::query()->whereNotIn('name', $platformOnly)->pluck('id'));
+            $role = $this->adminRoles->provision($company->id);
             $membership = CompanyUser::query()->create(['company_id' => $company->id, 'user_id' => $request->user()->id, 'role_id' => $role->id, 'is_active' => true]);
             $membership->roles()->attach($role->id);
             Subscription::query()->create(['company_id' => $company->id, 'plan_id' => $plan->id, 'status' => 'PENDING_APPROVAL', 'billing_interval' => $plan->billing_interval, 'starts_at' => null, 'trial_ends_at' => null]);

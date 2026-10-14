@@ -52,6 +52,14 @@ class PublicCompanyOnboardingTest extends TestCase
         $this->assertDatabaseHas('companies', ['id' => $id, 'approval_status' => 'PENDING']);
         $this->assertDatabaseHas('subscriptions', ['company_id' => $id, 'status' => 'PENDING_APPROVAL', 'starts_at' => null]);
         $this->assertDatabaseHas('company_users', ['company_id' => $id, 'user_id' => $user->id]);
+        $this->assertDatabaseHas('roles', ['company_id' => $id, 'name' => 'Admin', 'is_system' => true]);
+        $this->assertDatabaseMissing('roles', ['company_id' => $id, 'name' => 'Company Administrator']);
+        foreach (['billing.view', 'billing.manage', 'portal.settings.view', 'portal.settings.manage'] as $permission) {
+            $this->assertTrue($user->hasCompanyPermission($id, $permission));
+        }
+        $this->assertFalse($user->hasCompanyPermission($id, 'platform.companies.approve'));
+        $this->getJson('/api/v1/auth/me')->assertOk()->assertJsonPath('companies.0.is_company_owner', true)
+            ->assertJsonPath('companies.0.employee_linked', false);
     }
 
     public function test_legacy_growth_plan_cannot_be_selected_for_new_commercial_onboarding(): void

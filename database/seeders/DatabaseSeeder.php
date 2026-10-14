@@ -47,15 +47,15 @@ use App\Models\PakistanFbrInvoice;
 use App\Models\PakistanFbrInvoiceLine;
 use App\Models\PayrollComponent;
 use App\Models\PayrollPeriod;
-use App\Models\Permission;
 use App\Models\Plan;
 use App\Models\PlatformModule;
 use App\Models\PlatformNotification;
-use App\Models\Role;
 use App\Models\Subscription;
 use App\Models\Supplier;
 use App\Models\User;
 use App\Models\Warehouse;
+use App\Services\Platform\CompanyAdminRoleService;
+use App\Services\Platform\PlatformAuthority;
 use Illuminate\Database\Console\Seeds\WithoutModelEvents;
 use Illuminate\Database\Seeder;
 
@@ -69,60 +69,12 @@ class DatabaseSeeder extends Seeder
     public function run(): void
     {
         $this->call(BillingCatalogueSeeder::class);
-        $user = User::factory()->create(['name' => 'Finance Administrator', 'email' => 'finance@example.com', 'is_platform_admin' => true]);
+        $user = User::factory()->create(['name' => 'ZavSync Admin', 'email' => 'finance@example.com', 'is_platform_admin' => true]);
         $company = Company::factory()->create(['name' => 'ZavSync Demo Company', 'slug' => 'zavsync-demo']);
-        $role = Role::query()->create(['company_id' => $company->id, 'name' => 'Finance Administrator', 'is_system' => true]);
-        $permissions = collect([
-            'accounting.view', 'accounting.create', 'accounting.edit', 'accounting.post', 'accounting.periods.manage',
-            'suppliers.view', 'suppliers.manage', 'purchase_orders.view', 'purchase_orders.create', 'purchase_orders.update',
-            'purchase_orders.approve', 'purchase_orders.cancel', 'purchase_orders.receive', 'supplier_bills.view',
-            'supplier_bills.manage', 'supplier_bills.post', 'supplier_payments.create', 'payables.view',
-            'inventory.view', 'inventory.manage', 'inventory.adjust', 'inventory.transfer', 'inventory.valuation', 'inventory.return',
-            'banking.view', 'banking.manage', 'banking.import', 'banking.reconcile', 'banking.post', 'banking.transfer',
-            'banking.settlements', 'banking.cashflow',
-            'budget.view', 'budget.manage', 'budget.submit', 'budget.approve', 'forecast.view', 'forecast.manage',
-            'accounting.close.view', 'accounting.period.close', 'accounting.period.reopen', 'accounting.year.close', 'accounting.year.reopen',
-            'employee.self.view', 'employee.profile.edit', 'employee.links.manage', 'employee.payroll.view',
-            'employee.attendance.view', 'employee.attendance.clock', 'employee.attendance.correction.request',
-            'attendance.view', 'attendance.manage', 'attendance.corrections.manage',
-            'employee.leave.view', 'employee.leave.request', 'employee.leave.cancel',
-            'leave.view', 'leave.manage', 'leave.approve', 'holiday.view', 'holiday.manage',
-            'employee.tasks.view', 'employee.tasks.update', 'employee.tasks.comment',
-            'employee.tickets.view', 'employee.tickets.create', 'employee.tickets.comment',
-            'employee.documents.view', 'employee.documents.upload', 'employee.documents.admin.view', 'employee.documents.issue', 'employee.documents.release',
-            'employee.announcements.view', 'announcements.view', 'announcements.manage', 'announcements.publish',
-            'employee.directory.view', 'employee.teams.view', 'teams.view', 'teams.manage',
-            'employee.assets.view', 'employee.assets.request', 'assets.view', 'assets.decide',
-            'employee.expenses.view', 'employee.expenses.create', 'employee.expenses.edit', 'employee.expenses.submit',
-            'expenses.view', 'expenses.categories.manage', 'expenses.approve',
-            'employee.schedule.view', 'employee.schedule.swap.request', 'employee.schedule.swap.respond',
-            'schedules.view', 'schedules.manage', 'schedules.swaps.decide',
-            'tasks.view', 'tasks.manage', 'tasks.assign', 'tickets.view', 'tickets.manage',
-            'payroll.view', 'payroll.manage', 'payroll.calculate', 'payroll.review', 'payroll.approve', 'payroll.post', 'payroll.release',
-            'payroll.pay', 'payroll.settle-liabilities', 'payroll.reports', 'payroll.configure',
-            'crm.view', 'crm.accounts.manage', 'crm.contacts.manage', 'crm.leads.manage', 'crm.deals.manage',
-            'crm.activities.manage', 'crm.pipelines.manage', 'crm.import', 'crm.scoring.manage',
-            'crm.customer.convert', 'crm.reports.view',
-            'outreach.view', 'outreach.manage', 'outreach.send', 'outreach.templates.manage',
-            'outreach.sequences.manage', 'outreach.providers.manage', 'outreach.suppressions.manage', 'outreach.reports.view',
-            'platform.users.view', 'platform.users.manage', 'platform.invitations.manage',
-            'platform.roles.view', 'platform.roles.manage', 'platform.settings.view', 'platform.settings.manage', 'platform.settings.high-risk',
-            'platform.subscription.view', 'platform.subscription.manage', 'platform.plans.manage', 'billing.view', 'billing.manage',
-            'platform.companies.view', 'platform.companies.approve', 'platform.companies.activate',
-            'platform.documents.view', 'platform.documents.manage', 'platform.audit.view', 'platform.security.view', 'platform.security.manage',
-            'platform.jobs.view', 'platform.jobs.manage', 'platform.exports.view', 'platform.exports.manage',
-            'fbr.configuration.view', 'fbr.configuration.manage', 'migration.view', 'migration.manage',
-            'pakistan_fbr.view', 'pakistan_fbr.manage', 'pakistan_fbr.submit', 'fbr.reconcile', 'fbr.hs.manage',
-            'portal.settings.view', 'portal.settings.manage',
-            'ai.copilot.use', 'ai.knowledge.view', 'ai.knowledge.manage', 'ai.tools.use',
-            'ai.actions.propose', 'ai.actions.review', 'ai.actions.approve', 'ai.actions.execute',
-            'ai.providers.view', 'ai.providers.manage', 'ai.usage.view', 'ai.evaluations.view', 'ai.evaluations.manage',
-            'intelligence.view', 'intelligence.manage', 'intelligence.anomalies.view', 'intelligence.forecasts.view',
-            'intelligence.scenarios.manage', 'intelligence.briefings.view', 'intelligence.schedule.manage',
-            'intelligence.calendar.manage', 'intelligence.observability.view', 'intelligence.evaluations.manage',
-        ])->map(fn (string $name) => Permission::query()->firstOrCreate(['name' => $name]));
-        $role->permissions()->attach($permissions);
-        CompanyUser::query()->create(['company_id' => $company->id, 'user_id' => $user->id, 'role_id' => $role->id, 'is_active' => true]);
+        $role = app(CompanyAdminRoleService::class)->provision($company->id);
+        app(PlatformAuthority::class)->grantAll($user);
+        $membership = CompanyUser::query()->create(['company_id' => $company->id, 'user_id' => $user->id, 'role_id' => $role->id, 'is_active' => true]);
+        $membership->roles()->attach($role->id);
         CompanySetting::query()->create([
             'company_id' => $company->id, 'legal_name' => $company->name, 'trading_name' => 'ZavSync Demo',
             'email' => 'finance@example.com', 'country_code' => 'PK', 'timezone' => 'Asia/Karachi', 'base_currency' => 'PKR', 'updated_by' => $user->id,

@@ -41,12 +41,25 @@ use App\Models\Warehouse;
 use App\Services\Ai\AiChatRequest;
 use App\Services\Ai\AiChatResult;
 use App\Services\Ai\EmbeddingResult;
+use App\Services\Platform\PlatformAuthority;
 use Illuminate\Foundation\Application;
 use Illuminate\Foundation\Testing\TestCase as BaseTestCase;
 use Laravel\Sanctum\Sanctum;
 
 abstract class TestCase extends BaseTestCase
 {
+    protected function migratePlatformPermissionsForTest(User $user): void
+    {
+        $globalNames = PlatformAuthority::PERMISSIONS;
+        $ids = CompanyUser::query()->with(['role.permissions', 'roles.permissions'])
+            ->where('user_id', $user->id)->where('is_active', true)->get()
+            ->flatMap(fn (CompanyUser $membership) => collect([$membership->role])->merge($membership->roles)->filter()
+                ->flatMap(fn ($role) => $role->permissions))
+            ->filter(fn (Permission $permission) => in_array($permission->name, $globalNames, true))
+            ->pluck('id')->unique()->all();
+        app(PlatformAuthority::class)->grant($user, $ids);
+    }
+
     public function createApplication(): Application
     {
         $app = parent::createApplication();

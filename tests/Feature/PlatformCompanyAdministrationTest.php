@@ -30,6 +30,7 @@ class PlatformCompanyAdministrationTest extends TestCase
     {
         [$administrator, $home] = $this->actingAsCompanyUser(['platform.companies.view']);
         $administrator->forceFill(['is_platform_admin' => true])->save();
+        $this->migratePlatformPermissionsForTest($administrator);
         $target = Company::factory()->create(['name' => 'Acme Pakistan', 'approval_status' => 'PENDING']);
         CompanySetting::factory()->for($target)->create(['email' => 'acme@example.test', 'tax_identifier' => '1234567']);
         FbrCompanyConfiguration::factory()->for($target)->create(['credential' => 'never-return-this-secret', 'updated_by' => $administrator->id]);
@@ -52,6 +53,7 @@ class PlatformCompanyAdministrationTest extends TestCase
     {
         [$administrator, $home] = $this->actingAsCompanyUser(['platform.companies.approve', 'platform.companies.activate']);
         $administrator->forceFill(['is_platform_admin' => true])->save();
+        $this->migratePlatformPermissionsForTest($administrator);
         $target = Company::factory()->create(['approval_status' => 'PENDING', 'is_active' => true]);
         CompanySetting::factory()->for($target)->create(['email' => 'approvable@example.test', 'tax_identifier' => '1234567']);
         $target->update(['province_code' => 'SINDH']);
@@ -76,6 +78,7 @@ class PlatformCompanyAdministrationTest extends TestCase
     {
         [$administrator, $home] = $this->actingAsCompanyUser(['platform.companies.activate']);
         $administrator->forceFill(['is_platform_admin' => true])->save();
+        $this->migratePlatformPermissionsForTest($administrator);
         $target = Company::factory()->create(['approval_status' => 'APPROVED', 'is_active' => true]);
         $plan = Plan::factory()->create(['code' => 'starter']);
         $subscription = Subscription::factory()->for($target)->for($plan)->create([
@@ -106,6 +109,7 @@ class PlatformCompanyAdministrationTest extends TestCase
     {
         [$administrator, $home] = $this->actingAsCompanyUser(['platform.companies.activate']);
         $administrator->forceFill(['is_platform_admin' => true])->save();
+        $this->migratePlatformPermissionsForTest($administrator);
         $target = Company::factory()->create(['approval_status' => 'APPROVED', 'is_active' => true]);
         $plan = Plan::factory()->create(['code' => 'starter']);
         $subscription = Subscription::factory()->for($target)->for($plan)->create([
@@ -132,6 +136,7 @@ class PlatformCompanyAdministrationTest extends TestCase
     {
         [$administrator, $home] = $this->actingAsCompanyUser(['platform.companies.activate']);
         $administrator->forceFill(['is_platform_admin' => true])->save();
+        $this->migratePlatformPermissionsForTest($administrator);
         $target = Company::factory()->create(['approval_status' => 'APPROVED', 'is_active' => true]);
         $plan = Plan::factory()->create(['code' => 'starter']);
         $paidThrough = now()->addMonth()->startOfSecond();
@@ -176,6 +181,7 @@ class PlatformCompanyAdministrationTest extends TestCase
     {
         [$administrator, $home] = $this->actingAsCompanyUser(['platform.companies.activate']);
         $administrator->forceFill(['is_platform_admin' => true])->save();
+        $this->migratePlatformPermissionsForTest($administrator);
         $target = Company::factory()->create(['approval_status' => 'APPROVED', 'is_active' => true]);
         BillingCheckoutAttempt::factory()->for($target)->create([
             'operation' => 'COMPONENT_CHECKOUT', 'status' => 'PAYMENT_PENDING',
@@ -193,6 +199,7 @@ class PlatformCompanyAdministrationTest extends TestCase
     {
         [$administrator, $home] = $this->actingAsCompanyUser(['platform.companies.activate']);
         $administrator->forceFill(['is_platform_admin' => true])->save();
+        $this->migratePlatformPermissionsForTest($administrator);
         $target = Company::factory()->create(['approval_status' => 'APPROVED', 'is_active' => true]);
         $plan = Plan::factory()->create(['code' => 'starter']);
         Subscription::factory()->for($target)->for($plan)->create([
@@ -211,6 +218,7 @@ class PlatformCompanyAdministrationTest extends TestCase
     {
         [$administrator, $home] = $this->actingAsCompanyUser(['platform.companies.approve']);
         $administrator->forceFill(['is_platform_admin' => true])->save();
+        $this->migratePlatformPermissionsForTest($administrator);
         $target = Company::factory()->create(['approval_status' => 'PENDING']);
         Subscription::factory()->for($target)->create(['status' => 'PENDING_APPROVAL', 'starts_at' => null, 'trial_ends_at' => null]);
         $this->postJson("/api/v1/platform/admin/companies/{$target->id}/approval", [
@@ -243,6 +251,7 @@ class PlatformCompanyAdministrationTest extends TestCase
 
         [$administrator, $home] = $this->actingAsCompanyUser(['platform.companies.approve']);
         $administrator->forceFill(['is_platform_admin' => true])->save();
+        $this->migratePlatformPermissionsForTest($administrator);
         $this->getJson("/api/v1/platform/companies/{$id}/pending-profile")->assertNotFound();
         $this->postJson("/api/v1/platform/admin/companies/{$id}/approval", [
             'approval_status' => 'APPROVED', 'profile_version' => 2,
@@ -269,6 +278,7 @@ class PlatformCompanyAdministrationTest extends TestCase
     {
         [$administrator, $home] = $this->actingAsCompanyUser(['platform.companies.view']);
         $administrator->forceFill(['is_platform_admin' => true])->save();
+        $this->migratePlatformPermissionsForTest($administrator);
         $target = Company::factory()->create(['approval_status' => 'PENDING']);
         CompanySetting::factory()->for($target)->create();
         $path = "/api/v1/platform/admin/companies/{$target->id}";
@@ -396,6 +406,7 @@ class PlatformCompanyAdministrationTest extends TestCase
         Queue::fake();
         [$administrator, $home] = $this->actingAsCompanyUser(['platform.companies.approve']);
         $administrator->forceFill(['is_platform_admin' => true])->save();
+        $this->migratePlatformPermissionsForTest($administrator);
         $plan = Plan::factory()->create(['code' => 'starter']);
         FbrReferenceValue::factory()->create(['category' => 'PROVINCE', 'code' => 'SINDH']);
         $this->travelTo(now()->startOfSecond());
@@ -447,6 +458,7 @@ class PlatformCompanyAdministrationTest extends TestCase
     {
         [$administrator, $home] = $this->actingAsCompanyUser(['platform.companies.activate']);
         $administrator->forceFill(['is_platform_admin' => true])->save();
+        $this->migratePlatformPermissionsForTest($administrator);
         $target = Company::factory()->create(['approval_status' => 'APPROVED']);
         CompanySetting::factory()->for($target)->create();
         $this->patchJson("/api/v1/platform/admin/companies/{$target->id}/activity", [
