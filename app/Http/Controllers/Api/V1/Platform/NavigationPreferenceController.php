@@ -27,6 +27,7 @@ class NavigationPreferenceController extends Controller
         return response()->json($this->navigation->resolve(
             $companyId,
             $this->access->permissionNames($request->user(), $companyId),
+            $request->user()->id,
         ));
     }
 

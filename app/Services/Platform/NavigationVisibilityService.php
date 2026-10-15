@@ -20,6 +20,7 @@ class NavigationVisibilityService
         'hrm.leave' => ['Leave', 'payroll', 'leave.view', 'People'],
         'fbr.invoicing' => ['FBR Invoice', 'fbr', 'pakistan_fbr.view', 'Finance'],
         'fbr.configuration' => ['FBR Configuration', 'fbr', 'fbr.configuration.view', 'Finance'],
+        'fbr.portal_settings' => ['Portal Settings', 'fbr', 'portal.settings.view', 'Finance'],
         'fbr.migrations' => ['FBR Migration Administration', 'fbr', 'migration.view', 'Finance'],
         'accounting.invoices' => ['Accounting Invoices', 'invoicing', 'accounting.view', 'Finance'],
         'accounting.fbr_status' => ['Accounting Invoice FBR Status', 'invoicing', 'accounting.view', 'Finance'],
@@ -114,9 +115,10 @@ class NavigationVisibilityService
     }
 
     /** @param array<int, string> $permissions @return array{catalog: array<int, array<string, mixed>>, items: array<int, array<string, mixed>>, parents: array<int, array<string, mixed>>, visible_keys: array<int, string>} */
-    public function resolve(string $companyId, array $permissions): array
+    public function resolve(string $companyId, array $permissions, ?int $userId = null): array
     {
-        $commerciallyManaged = (bool) Company::query()->whereKey($companyId)->value('billing_policy_applies');
+        $company = Company::query()->findOrFail($companyId);
+        $commerciallyManaged = (bool) $company->billing_policy_applies;
         $modules = PlatformModule::query()->orderBy('name')->get()->keyBy('key');
         $entitledKeys = $this->entitlements->enabledModules($companyId);
         $preferences = CompanyNavigationPreference::query()->where('company_id', $companyId)->get()->keyBy('item_key');
@@ -130,7 +132,8 @@ class NavigationVisibilityService
             $module = $modules->get($moduleKey);
             $active = $module !== null && $module->is_active;
             $entitled = in_array($moduleKey, $entitledKeys, true);
-            $authorized = $allPermissions || in_array($permission, $permissions, true);
+            $authorized = $allPermissions || in_array($permission, $permissions, true)
+                || ($key === 'fbr.portal_settings' && $userId !== null && (int) $company->created_by === $userId);
             $visibilityOverride = $preferences->get($key)?->is_visible;
             $presentationVisible = $visibilityOverride !== false;
             $reason = match (true) {

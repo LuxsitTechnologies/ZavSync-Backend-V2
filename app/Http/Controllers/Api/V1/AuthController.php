@@ -202,7 +202,7 @@ class AuthController extends Controller
             'employee_portal_available' => $employeeLinked && ($permissions->contains('employee.self.view') || $permissions->contains('*')) && in_array('payroll', $modules, true),
             'roles' => collect([$membership->role])->merge($membership->roles)->filter()->pluck('name')->unique()->values(),
             'permissions' => $permissions, 'modules' => $modules,
-            'effective_navigation' => $this->navigation->resolve($companyId, $permissions->all()),
+            'effective_navigation' => $this->navigation->resolve($companyId, $permissions->all(), $userId),
         ];
     }
 }

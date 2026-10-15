@@ -188,6 +188,40 @@ class NavigationVisibilityTest extends TestCase
         $this->assertNotContains('accounting.invoices', $response->json('visible_keys'));
     }
 
+    public function test_portal_settings_has_independent_visibility_without_changing_view_authority(): void
+    {
+        [$user, $company] = $this->actingAsCompanyUser(['platform.settings.manage', 'portal.settings.view', 'pakistan_fbr.view']);
+        $this->subscribe($company, ['invoicing']);
+        $headers = ['X-Company-Id' => $company->id];
+
+        $initial = $this->getJson('/api/v1/platform/navigation', $headers)->assertOk();
+        $this->assertSame('portal.settings.view', $this->item($initial->json(), 'fbr.portal_settings')['required_permission']);
+        $this->assertSame('finance.fbr', $this->item($initial->json(), 'fbr.portal_settings')['parent_key']);
+        $this->assertContains('fbr.portal_settings', $initial->json('visible_keys'));
+
+        $hidden = $this->putJson('/api/v1/platform/navigation/fbr.portal_settings', ['is_visible' => false], $headers)->assertOk();
+        $this->assertNotContains('fbr.portal_settings', $hidden->json('visible_keys'));
+        $this->assertContains('fbr.invoicing', $hidden->json('visible_keys'));
+        $this->getJson('/api/v1/pakistan-fbr/portal-settings', $headers)->assertOk();
+        $this->assertDatabaseHas('company_navigation_preferences', ['company_id' => $company->id, 'item_key' => 'fbr.portal_settings', 'is_visible' => false]);
+
+        $reset = $this->deleteJson('/api/v1/platform/navigation/fbr.portal_settings', [], $headers)->assertOk();
+        $this->assertContains('fbr.portal_settings', $reset->json('visible_keys'));
+    }
+
+    public function test_company_owner_portal_visibility_matches_portal_access_without_a_role_permission(): void
+    {
+        [$user, $company] = $this->actingAsCompanyUser([]);
+        $company->update(['created_by' => $user->id]);
+        $this->subscribe($company, ['invoicing']);
+        $headers = ['X-Company-Id' => $company->id];
+
+        $navigation = $this->getJson('/api/v1/auth/me')->assertOk()->json('companies.0.effective_navigation');
+        $this->assertTrue($this->item($navigation, 'fbr.portal_settings')['authorized']);
+        $this->assertContains('fbr.portal_settings', $navigation['visible_keys']);
+        $this->getJson('/api/v1/pakistan-fbr/portal-settings', $headers)->assertOk();
+    }
+
     public function test_parent_visibility_is_derived_only_from_visible_children(): void
     {
         [, $company] = $this->actingAsCompanyUser(['platform.settings.manage', 'pakistan_fbr.view', 'accounting.view']);
