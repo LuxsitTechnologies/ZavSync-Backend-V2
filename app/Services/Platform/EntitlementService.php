@@ -22,15 +22,21 @@ class EntitlementService
 
     public function __construct(private readonly BillingCatalogueService $catalogue) {}
 
+    public function currentSubscription(Company $company): ?Subscription
+    {
+        $query = Subscription::query()->where('company_id', $company->id);
+
+        return $company->billing_policy_applies
+            ? $query->orderByDesc('created_at')->orderByDesc('id')->first()
+            : $query->orderByDesc('starts_at')->orderByDesc('id')->first();
+    }
+
     /** @return array<int, string> */
     public function enabledModules(string $companyId): array
     {
         return Cache::remember("company:{$companyId}:entitlements", now()->addMinutes(5), function () use ($companyId): array {
             $company = Company::query()->findOrFail($companyId);
-            $subscriptionQuery = Subscription::query()->with('plan.modules')->where('company_id', $companyId);
-            $subscription = $company->billing_policy_applies
-                ? $subscriptionQuery->orderByDesc('created_at')->orderByDesc('id')->first()
-                : $subscriptionQuery->latest('starts_at')->first();
+            $subscription = $this->currentSubscription($company)?->load('plan.modules');
             if ($company->billing_policy_applies) {
                 if ($subscription === null || ! $this->subscriptionIsUsable($subscription)) {
                     return [];
@@ -100,8 +106,7 @@ class EntitlementService
             };
         }
         if ($module !== null && ! in_array($module, $this->enabledModules($companyId), true)) {
-            $subscription = Subscription::query()->where('company_id', $companyId)
-                ->orderByDesc('created_at')->orderByDesc('id')->first();
+            $subscription = $this->currentSubscription(Company::query()->findOrFail($companyId));
             $code = $subscription !== null && ! $this->subscriptionIsUsable($subscription) ? 'SUBSCRIPTION_INACTIVE' : 'MODULE_NOT_ENTITLED';
             throw new PlatformException($code, 'This module is not available for the active company.', 403);
         }
@@ -188,7 +193,7 @@ class EntitlementService
             ->sum('billing_subscription_items.quantity');
     }
 
-    private function subscriptionIsUsable(Subscription $subscription): bool
+    public function subscriptionIsUsable(Subscription $subscription): bool
     {
         if (! in_array($subscription->status, ['TRIALING', 'ACTIVE', 'PAST_DUE_GRACE'], true)) {
             return false;
