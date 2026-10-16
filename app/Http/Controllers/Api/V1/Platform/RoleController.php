@@ -4,6 +4,9 @@ namespace App\Http\Controllers\Api\V1\Platform;
 
 use App\Exceptions\PlatformException;
 use App\Http\Controllers\Controller;
+use App\Models\AuditLog;
+use App\Models\Company;
+use App\Models\CompanyInvitation;
 use App\Models\CompanyUser;
 use App\Models\Permission;
 use App\Models\Role;
@@ -87,15 +90,83 @@ class RoleController extends Controller
         $this->owned($request, $role);
         $companyId = $this->companyId($request);
         $this->access->authorize($request->user(), $companyId, 'platform.roles.manage');
-        abort_if($role->is_system, 409, 'System roles cannot be archived.');
-        abort_if(CompanyUser::query()->where('company_id', $companyId)->where(function ($query) use ($role): void {
-            $query->where('role_id', $role->id)->orWhereHas('roles', fn ($roles) => $roles->whereKey($role->id));
-        })->exists(), 409, 'Remove this role from every user before archiving it.');
-        $old = $role->toArray();
-        $role->update(['archived_at' => now()]);
-        $this->audit->record($request, $request->user(), $companyId, 'role_archived', 'platform', $role, $old, $role->fresh()->toArray());
+        $role = DB::transaction(function () use ($request, $role, $companyId): Role {
+            Company::query()->whereKey($companyId)->lockForUpdate()->firstOrFail();
+            $this->access->authorize($request->user(), $companyId, 'platform.roles.manage');
+            $role = Role::query()->where('company_id', $companyId)->whereKey($role->id)->lockForUpdate()->firstOrFail();
+            abort_if($role->is_system, 409, 'System roles cannot be archived.');
+            abort_if(CompanyUser::query()->where('company_id', $companyId)->where(function ($query) use ($role): void {
+                $query->where('role_id', $role->id)->orWhereHas('roles', fn ($roles) => $roles->whereKey($role->id));
+            })->exists(), 409, 'Remove this role from every user before archiving it.');
+            $old = $role->toArray();
+            $role->update(['archived_at' => now()]);
+            $this->audit->record($request, $request->user(), $companyId, 'role_archived', 'platform', $role, $old, $role->fresh()->toArray());
+
+            return $role;
+        });
 
         return response()->json($role);
+    }
+
+    public function destroy(Request $request, Role $role): JsonResponse
+    {
+        $this->owned($request, $role);
+        $companyId = $this->companyId($request);
+        $this->access->authorize($request->user(), $companyId, 'platform.roles.manage');
+
+        DB::transaction(function () use ($request, $role, $companyId): void {
+            Company::query()->whereKey($companyId)->lockForUpdate()->firstOrFail();
+            $this->access->authorize($request->user(), $companyId, 'platform.roles.manage');
+            $role = Role::query()->where('company_id', $companyId)->whereKey($role->id)->lockForUpdate()->firstOrFail();
+            if ($role->is_system || $role->archived_at === null) {
+                throw new PlatformException('ROLE_DELETE_BLOCKED', 'Only archived custom roles may be deleted.', 409);
+            }
+            if (CompanyUser::query()->where('company_id', $companyId)
+                ->where(fn ($query) => $query->where('role_id', $role->id)
+                    ->orWhereHas('roles', fn ($assigned) => $assigned->whereKey($role->id)))->exists()
+                || CompanyInvitation::query()->where('company_id', $companyId)->whereJsonContains('role_ids', $role->id)->exists()
+                || $this->hasAssignmentAudit($companyId, $role->id)) {
+                throw new PlatformException('ROLE_DELETE_BLOCKED', 'This role has assignment or invitation history and cannot be deleted.', 409);
+            }
+
+            $snapshot = $role->load('permissions')->toArray();
+            $this->audit->record($request, $request->user(), $companyId, 'role_deleted', 'platform', $role, $snapshot, null);
+            $role->delete();
+        });
+
+        return response()->json(['message' => 'Archived custom role deleted.']);
+    }
+
+    private function hasAssignmentAudit(string $companyId, int $roleId): bool
+    {
+        return AuditLog::query()->where('company_id', $companyId)
+            ->where('entity_type', '!=', Role::class)
+            ->cursor()->contains(fn (AuditLog $log): bool => $this->mentionsRole($log->old_values, $roleId)
+                || $this->mentionsRole($log->new_values, $roleId));
+    }
+
+    /** @param array<string|int, mixed>|null $values */
+    private function mentionsRole(?array $values, int $roleId): bool
+    {
+        if ($values === null) {
+            return false;
+        }
+        foreach ($values as $key => $value) {
+            if ($key === 'role_id' && (int) $value === $roleId) {
+                return true;
+            }
+            if ($key === 'role_ids' && is_array($value) && in_array($roleId, $value, true)) {
+                return true;
+            }
+            if ($key === 'roles' && is_array($value) && collect($value)->contains(fn ($assigned): bool => is_array($assigned) && (int) ($assigned['id'] ?? 0) === $roleId)) {
+                return true;
+            }
+            if (is_array($value) && $this->mentionsRole($value, $roleId)) {
+                return true;
+            }
+        }
+
+        return false;
     }
 
     /** @return array{name:string,permission_ids:array<int,int>} */

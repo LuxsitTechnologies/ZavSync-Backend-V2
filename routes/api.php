@@ -407,6 +407,7 @@ Route::prefix('v1')->group(function (): void {
             Route::put('platform/roles/{role}', [RoleController::class, 'update'])->name('platform.roles.update');
             Route::post('platform/roles/{role}/clone', [RoleController::class, 'clone'])->name('platform.roles.clone');
             Route::post('platform/roles/{role}/archive', [RoleController::class, 'archive'])->name('platform.roles.archive');
+            Route::delete('platform/roles/{role}', [RoleController::class, 'destroy'])->middleware('throttle:sensitive')->name('platform.roles.destroy');
             Route::get('platform/settings', [CompanySettingController::class, 'show'])->name('platform.settings.show');
             Route::put('platform/settings', [CompanySettingController::class, 'update'])->name('platform.settings.update');
             Route::post('platform/settings/logo', [CompanySettingController::class, 'logo'])->middleware('throttle:uploads')->name('platform.settings.logo');

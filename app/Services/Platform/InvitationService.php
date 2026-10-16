@@ -52,7 +52,13 @@ class InvitationService
     public function accept(string $token, ?User $authenticatedUser, ?string $name, ?string $password): array
     {
         return DB::transaction(function () use ($token, $authenticatedUser, $name, $password): array {
-            $invitation = CompanyInvitation::query()->where('token_hash', hash('sha256', $token))->lockForUpdate()->first();
+            $tokenHash = hash('sha256', $token);
+            $companyId = CompanyInvitation::query()->where('token_hash', $tokenHash)->value('company_id');
+            if ($companyId === null) {
+                throw new PlatformException('INVITATION_INVALID', 'This invitation is invalid.', 404);
+            }
+            Company::query()->whereKey($companyId)->lockForUpdate()->firstOrFail();
+            $invitation = CompanyInvitation::query()->where('token_hash', $tokenHash)->lockForUpdate()->first();
             if ($invitation === null) {
                 throw new PlatformException('INVITATION_INVALID', 'This invitation is invalid.', 404);
             }
@@ -62,6 +68,13 @@ class InvitationService
             if ($invitation->status === 'EXPIRED' || $invitation->expires_at->isPast()) {
                 $invitation->update(['status' => 'EXPIRED']);
                 throw new PlatformException('INVITATION_EXPIRED', 'This invitation has expired.', 410);
+            }
+
+            $roleIds = $invitation->role_ids;
+            $validRoles = Role::query()->where('company_id', $invitation->company_id)
+                ->whereNull('archived_at')->whereKey($roleIds)->count();
+            if ($validRoles !== count(array_unique($roleIds))) {
+                throw new PlatformException('INVITATION_ROLE_UNAVAILABLE', 'An invited role is no longer available.', 409);
             }
 
             if ($authenticatedUser !== null && Str::lower($authenticatedUser->email) !== $invitation->email) {
