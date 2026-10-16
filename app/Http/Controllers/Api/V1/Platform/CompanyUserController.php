@@ -3,6 +3,7 @@
 namespace App\Http\Controllers\Api\V1\Platform;
 
 use App\Http\Controllers\Controller;
+use App\Models\Company;
 use App\Models\CompanyUser;
 use App\Models\Role;
 use App\Services\AuditService;
@@ -10,6 +11,7 @@ use App\Services\Platform\EntitlementService;
 use App\Services\Platform\PlatformAccessService;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
+use Illuminate\Support\Facades\DB;
 
 class CompanyUserController extends Controller
 {
@@ -47,16 +49,23 @@ class CompanyUserController extends Controller
         $companyId = $this->companyId($request);
         $this->access->authorize($request->user(), $companyId, 'platform.users.manage');
         $data = $request->validate(['role_ids' => ['present', 'array'], 'role_ids.*' => ['integer', 'distinct']]);
-        $roles = Role::query()->where('company_id', $companyId)->whereNull('archived_at')->whereKey($data['role_ids'])->get();
-        abort_unless($roles->count() === count($data['role_ids']), 404);
-        abort_if($membership->user_id === $request->user()->id && $roles->isEmpty(), 409, 'You cannot remove every role from your own membership.');
-        $this->access->assertCanAssignRoles($request->user(), $companyId, $data['role_ids']);
-        $old = $membership->load('roles')->toArray();
-        $membership->roles()->sync($roles->modelKeys());
-        $membership->update(['role_id' => $roles->first()?->id]);
-        $this->audit->record($request, $request->user(), $companyId, 'roles_updated', 'platform', $membership, $old, $membership->fresh('roles')->toArray());
+        $updated = DB::transaction(function () use ($request, $membership, $companyId, $data): CompanyUser {
+            Company::query()->whereKey($companyId)->lockForUpdate()->firstOrFail();
+            $this->access->authorize($request->user(), $companyId, 'platform.users.manage');
+            $membership = CompanyUser::query()->where('company_id', $companyId)->whereKey($membership->id)->lockForUpdate()->firstOrFail();
+            $roles = Role::query()->where('company_id', $companyId)->whereNull('archived_at')->whereKey($data['role_ids'])->get();
+            abort_unless($roles->count() === count($data['role_ids']), 404);
+            abort_if($membership->user_id === $request->user()->id && $roles->isEmpty(), 409, 'You cannot remove every role from your own membership.');
+            $this->access->assertCanAssignRoles($request->user(), $companyId, $data['role_ids']);
+            $old = $membership->load('roles')->toArray();
+            $membership->roles()->sync($roles->modelKeys());
+            $membership->update(['role_id' => $roles->first()?->id]);
+            $this->audit->record($request, $request->user(), $companyId, 'roles_updated', 'platform', $membership, $old, $membership->fresh('roles')->toArray());
 
-        return response()->json($membership->fresh(['user', 'roles.permissions']));
+            return $membership;
+        });
+
+        return response()->json($updated->fresh(['user', 'roles.permissions']));
     }
 
     public function updateStatus(Request $request, CompanyUser $membership): JsonResponse
