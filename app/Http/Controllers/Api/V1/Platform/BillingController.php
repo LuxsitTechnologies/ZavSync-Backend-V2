@@ -83,8 +83,7 @@ class BillingController extends Controller
         $companyId = $this->authorize($request, 'billing.view');
         $company = Company::query()->findOrFail($companyId);
         $settings = CompanySetting::query()->where('company_id', $companyId)->firstOrFail();
-        $subscription = Subscription::query()->with('plan:id,code,name')->where('company_id', $companyId)
-            ->orderByDesc('created_at')->orderByDesc('id')->first();
+        $subscription = $this->entitlements->currentSubscription($company)?->load('plan:id,code,name');
         $attempt = BillingCheckoutAttempt::query()->where('company_id', $companyId)
             ->orderByDesc('created_at')->orderByDesc('id')->first();
 

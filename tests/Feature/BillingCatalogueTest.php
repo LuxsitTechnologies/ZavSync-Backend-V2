@@ -18,6 +18,7 @@ use App\Models\Employee;
 use App\Models\PakistanFbrInvoice;
 use App\Models\PakistanFbrSubmissionAttempt;
 use App\Models\Plan;
+use App\Models\PlatformModule;
 use App\Models\Subscription;
 use App\Services\Ai\DatabaseAiUsageMeter;
 use App\Services\Platform\BillingCatalogueService;
@@ -118,6 +119,104 @@ class BillingCatalogueTest extends TestCase
         [, $otherCompany] = $this->actingAsCompanyUser(['billing.view', 'billing.manage']);
         $this->getJson('/api/v1/platform/billing/catalogue', $headers)->assertForbidden();
         $this->getJson('/api/v1/platform/billing/catalogue', ['X-Company-Id' => $otherCompany->id])->assertNotFound();
+    }
+
+    public function test_unmanaged_active_subscription_reports_legacy_access_without_enabling_stripe_actions(): void
+    {
+        [, $company] = $this->actingAsCompanyUser(['billing.view', 'billing.manage', 'accounting.view']);
+        CompanySetting::factory()->for($company)->create(['country_code' => 'PK', 'billing_country_confirmed_at' => now()]);
+        $module = PlatformModule::factory()->create(['key' => 'accounting']);
+        $plan = Plan::factory()->create();
+        $plan->modules()->attach($module->key, ['is_enabled' => true]);
+        Subscription::factory()->for($company)->for($plan)->create([
+            'status' => 'ACTIVE', 'provider' => null, 'provider_reference' => null,
+            'renews_at' => now()->addMonth(),
+        ]);
+        $headers = ['X-Company-Id' => $company->id];
+
+        $this->getJson('/api/v1/platform/billing/summary', $headers)->assertOk()
+            ->assertJsonPath('commercial.state', 'ACTIVE')
+            ->assertJsonPath('subscription.status', 'ACTIVE')
+            ->assertJsonPath('capabilities.manage', true)
+            ->assertJsonPath('provider_ready', false);
+        $this->getJson('/api/v1/platform/billing/usage', $headers)->assertOk()
+            ->assertJsonPath('managed_billing', false);
+        $this->getJson('/api/v1/accounting/accounts', $headers)->assertOk();
+        $this->postJson('/api/v1/platform/billing/checkout', [
+            'plan' => 'starter', 'billing_interval' => 'monthly',
+        ], [...$headers, 'Idempotency-Key' => 'LegacyCheckout'])->assertStatus(503)
+            ->assertJsonPath('error_code', 'BILLING_PROVIDER_NOT_CONFIGURED');
+        $this->postJson('/api/v1/platform/billing/payment-method-portal', [], $headers)
+            ->assertStatus(503)->assertJsonPath('error_code', 'BILLING_PAYMENT_METHOD_UNAVAILABLE');
+        $this->assertDatabaseCount('billing_checkout_attempts', 0);
+    }
+
+    public function test_managed_active_row_without_provider_link_remains_read_only(): void
+    {
+        [, $company] = $this->actingAsCompanyUser(['billing.view', 'billing.manage']);
+        $company->update(['billing_policy_applies' => true]);
+        CompanySetting::factory()->for($company)->create();
+        $plan = Plan::factory()->create(['code' => 'starter']);
+        Subscription::factory()->for($company)->for($plan)->create([
+            'status' => 'ACTIVE', 'provider' => null, 'provider_reference' => null,
+            'renews_at' => now()->addMonth(),
+        ]);
+
+        $this->getJson('/api/v1/platform/billing/summary', ['X-Company-Id' => $company->id])
+            ->assertOk()->assertJsonPath('commercial.state', 'READ_ONLY')
+            ->assertJsonPath('capabilities.manage', true);
+    }
+
+    public function test_managed_provider_linked_subscription_stays_active_when_stripe_is_not_configured(): void
+    {
+        [, $company] = $this->actingAsCompanyUser(['billing.view', 'billing.manage']);
+        $company->update(['billing_policy_applies' => true]);
+        CompanySetting::factory()->for($company)->create();
+        $plan = Plan::factory()->create(['code' => 'starter']);
+        Subscription::factory()->for($company)->for($plan)->create([
+            'status' => 'ACTIVE', 'provider' => 'stripe', 'provider_reference' => 'sub_testLinked',
+            'renews_at' => now()->addMonth(),
+        ]);
+
+        $this->getJson('/api/v1/platform/billing/summary', ['X-Company-Id' => $company->id])
+            ->assertOk()->assertJsonPath('commercial.state', 'ACTIVE')
+            ->assertJsonPath('provider_ready', false);
+    }
+
+    public function test_unmanaged_expired_subscription_follows_legacy_entitlement_policy(): void
+    {
+        [, $company] = $this->actingAsCompanyUser(['billing.view', 'accounting.view']);
+        CompanySetting::factory()->for($company)->create();
+        $module = PlatformModule::factory()->create(['key' => 'accounting']);
+        $plan = Plan::factory()->create();
+        $plan->modules()->attach($module->key, ['is_enabled' => true]);
+        Subscription::factory()->for($company)->for($plan)->create([
+            'status' => 'TRIALING', 'trial_ends_at' => now()->subDay(),
+        ]);
+        $headers = ['X-Company-Id' => $company->id];
+
+        $this->getJson('/api/v1/platform/billing/summary', $headers)->assertOk()
+            ->assertJsonPath('commercial.state', 'READ_ONLY')
+            ->assertJsonPath('capabilities.manage', false);
+        $this->getJson('/api/v1/accounting/accounts', $headers)->assertForbidden()
+            ->assertJsonPath('error_code', 'SUBSCRIPTION_INACTIVE');
+    }
+
+    public function test_billing_management_capability_remains_permission_and_company_scoped(): void
+    {
+        [, $companyA] = $this->actingAsCompanyUser(['billing.view', 'billing.manage']);
+        CompanySetting::factory()->for($companyA)->create();
+        [, $companyB] = $this->actingAsCompanyUser(['billing.view']);
+        CompanySetting::factory()->for($companyB)->create();
+
+        $this->getJson('/api/v1/platform/billing/summary', ['X-Company-Id' => $companyB->id])
+            ->assertOk()->assertJsonPath('capabilities.manage', false);
+        $this->getJson('/api/v1/platform/billing/summary', ['X-Company-Id' => $companyA->id])
+            ->assertForbidden()->assertJsonPath('error_code', 'TENANT_ACCESS_DENIED');
+        [, $companyC] = $this->actingAsCompanyUser(['billing.manage']);
+        CompanySetting::factory()->for($companyC)->create();
+        $this->getJson('/api/v1/platform/billing/summary', ['X-Company-Id' => $companyC->id])
+            ->assertForbidden()->assertJsonPath('error_code', 'PERMISSION_DENIED');
     }
 
     public function test_fake_checkout_creates_payment_pending_only_and_replay_reuses_provider_session(): void
