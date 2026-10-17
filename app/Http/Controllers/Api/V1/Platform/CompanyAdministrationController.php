@@ -194,7 +194,7 @@ class CompanyAdministrationController extends Controller
     {
         $this->authorize($request, 'platform.companies.activate');
         $data = $request->validate(['is_active' => ['required', 'boolean'], 'profile_version' => ['required', 'integer', 'min:1']]);
-        if (! $data['is_active'] && $company === (string) $request->attributes->get('company_id')) {
+        if (! $data['is_active'] && $company === ($request->header('X-Company-Id') ?: $request->query('company_id'))) {
             throw new PlatformException('COMPANY_CONTEXT_DEACTIVATION_BLOCKED', 'Select a different active administration company before deactivating this one.', 409);
         }
         $result = DB::transaction(function () use ($request, $company, $data): Company {

@@ -155,15 +155,18 @@ Route::prefix('v1')->group(function (): void {
         Route::post('platform/companies', [CompanyController::class, 'store'])->middleware('throttle:company-create')->name('platform.companies.store');
         Route::get('platform/companies/{company}/pending-profile', [CompanyAdministrationController::class, 'pendingProfile'])->name('platform.companies.pending-profile.show');
         Route::patch('platform/companies/{company}/pending-profile', [CompanyAdministrationController::class, 'updatePendingProfile'])->middleware('throttle:sensitive')->name('platform.companies.pending-profile.update');
+        Route::get('platform/admin/companies', [CompanyAdministrationController::class, 'index'])->name('platform.admin.companies.index');
+        Route::get('platform/admin/companies/{company}', [CompanyAdministrationController::class, 'show'])->name('platform.admin.companies.show');
+        Route::post('platform/admin/companies/{company}/approval', [CompanyAdministrationController::class, 'approval'])->middleware('throttle:sensitive')->name('platform.admin.companies.approval');
+        Route::patch('platform/admin/companies/{company}/activity', [CompanyAdministrationController::class, 'activity'])->middleware('throttle:sensitive')->name('platform.admin.companies.activity');
+        Route::get('platform/system/failed-jobs', [SystemController::class, 'failedJobs'])->name('platform.system.failed-jobs');
+        Route::post('platform/system/failed-jobs/{uuid}/retry', [SystemController::class, 'retryJob'])->name('platform.system.failed-jobs.retry');
+        Route::get('platform/system/schedule', [SystemController::class, 'schedule'])->name('platform.system.schedule');
 
         Route::middleware('company')->group(function (): void {
             Route::get('platform/company-profile', [CompanyAdministrationController::class, 'ownProfile'])->name('platform.company-profile.show');
             Route::patch('platform/company-profile', [CompanyAdministrationController::class, 'updateOwnProfile'])->middleware('throttle:sensitive')->name('platform.company-profile.update');
-            Route::get('platform/admin/companies', [CompanyAdministrationController::class, 'index'])->name('platform.admin.companies.index');
-            Route::get('platform/admin/companies/{company}', [CompanyAdministrationController::class, 'show'])->name('platform.admin.companies.show');
             Route::patch('platform/admin/companies/{company}', [CompanyAdministrationController::class, 'updateAdminProfile'])->middleware('throttle:sensitive')->name('platform.admin.companies.update');
-            Route::post('platform/admin/companies/{company}/approval', [CompanyAdministrationController::class, 'approval'])->middleware('throttle:sensitive')->name('platform.admin.companies.approval');
-            Route::patch('platform/admin/companies/{company}/activity', [CompanyAdministrationController::class, 'activity'])->middleware('throttle:sensitive')->name('platform.admin.companies.activity');
             Route::get('employee/documents', [EmployeeDocumentController::class, 'index'])->name('employee.documents.index');
             Route::post('employee/documents', [EmployeeDocumentController::class, 'store'])->middleware('throttle:uploads')->name('employee.documents.store');
             Route::get('employee/documents/{document}', [EmployeeDocumentController::class, 'show'])->name('employee.documents.show');
@@ -445,9 +448,6 @@ Route::prefix('v1')->group(function (): void {
             Route::get('platform/security', [SecurityController::class, 'index'])->name('platform.security.index');
             Route::delete('platform/security/sessions/{session}', [SecurityController::class, 'revokeSession'])->name('platform.security.sessions.destroy');
             Route::delete('platform/security/sessions', [SecurityController::class, 'revokeOthers'])->name('platform.security.sessions.destroy-others');
-            Route::get('platform/system/failed-jobs', [SystemController::class, 'failedJobs'])->name('platform.system.failed-jobs');
-            Route::post('platform/system/failed-jobs/{uuid}/retry', [SystemController::class, 'retryJob'])->name('platform.system.failed-jobs.retry');
-            Route::get('platform/system/schedule', [SystemController::class, 'schedule'])->name('platform.system.schedule');
             Route::get('platform/exports', [CompanyExportController::class, 'index'])->name('platform.exports.index');
             Route::post('platform/exports', [CompanyExportController::class, 'store'])->name('platform.exports.store');
             Route::get('platform/exports/{export}/download', [CompanyExportController::class, 'download'])->name('platform.exports.download');
